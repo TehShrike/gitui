@@ -567,17 +567,16 @@ fn tokenize_code(s: &str) -> Vec<&str> {
 	while let Some(&(start_idx, c)) = chars.peek() {
 		if c.is_alphanumeric() || c == '_' {
 			chars.next();
+			let mut end = s.len();
 			while let Some(&(end_idx, next_c)) = chars.peek() {
 				if next_c.is_alphanumeric() || next_c == '_' {
 					chars.next();
 				} else {
-					tokens.push(&s[start_idx..end_idx]);
+					end = end_idx;
 					break;
 				}
 			}
-			if chars.peek().is_none() {
-				tokens.push(&s[start_idx..]);
-			}
+			push_identifier_parts(&s[start_idx..end], &mut tokens);
 		} else if c.is_whitespace() {
 			chars.next();
 			while let Some(&(end_idx, next_c)) = chars.peek() {
@@ -601,6 +600,30 @@ fn tokenize_code(s: &str) -> Vec<&str> {
 		}
 	}
 	tokens
+}
+
+/// Split an identifier at camelCase, snake_case, and letter/digit boundaries
+/// so that renaming part of a name highlights only that part, e.g.
+/// `FooComponent` -> `FooLegacyComponent` highlights just `Legacy`.
+fn push_identifier_parts<'a>(word: &'a str, tokens: &mut Vec<&'a str>) {
+	let chars: Vec<(usize, char)> = word.char_indices().collect();
+	let mut start = 0;
+	for i in 1..chars.len() {
+		let (idx, cur) = chars[i];
+		let prev = chars[i - 1].1;
+		let next = chars.get(i + 1).map(|&(_, c)| c);
+		// The last condition splits acronyms from a following word: `HTTPServer` -> `HTTP`, `Server`
+		let boundary = prev == '_'
+			|| cur == '_'
+			|| prev.is_alphabetic() != cur.is_alphabetic()
+			|| (prev.is_lowercase() && cur.is_uppercase())
+			|| (prev.is_uppercase() && cur.is_uppercase() && next.is_some_and(char::is_lowercase));
+		if boundary {
+			tokens.push(&word[start..idx]);
+			start = idx;
+		}
+	}
+	tokens.push(&word[start..]);
 }
 
 fn merge_whitespace_separated_highlights(highlights: &mut Vec<InlineHighlight>, content: &str) {
@@ -1020,5 +1043,41 @@ mod tests {
 		assert_eq!(lines4[1].inline_highlights.len(), 1);
 		assert_eq!(lines4[1].inline_highlights[0].start, 16);
 		assert_eq!(lines4[1].inline_highlights[0].end, 17);
+
+		// Case 5: A word inserted into a camelCase identifier highlights only that word.
+		let mut lines5 = vec![
+			DiffLine {
+				content: "WorkflowPreparationComponent::Client::WorkflowPreparation::Get".into(),
+				line_type: DiffLineType::Delete,
+				position: DiffLinePosition::default(),
+				inline_highlights: Vec::new(),
+			},
+			DiffLine {
+				content: "WorkflowPreparationLegacyComponent::Client::WorkflowPreparationLegacy::Get".into(),
+				line_type: DiffLineType::Add,
+				position: DiffLinePosition::default(),
+				inline_highlights: Vec::new(),
+			},
+		];
+
+		add_inline_highlights(&mut lines5);
+
+		assert!(lines5[0].inline_highlights.is_empty());
+
+		assert_eq!(lines5[1].inline_highlights.len(), 2);
+		assert_eq!(lines5[1].inline_highlights[0].start, 19);
+		assert_eq!(lines5[1].inline_highlights[0].end, 25);
+		assert_eq!(lines5[1].inline_highlights[1].start, 63);
+		assert_eq!(lines5[1].inline_highlights[1].end, 69);
+	}
+
+	#[test]
+	fn test_tokenize_code_splits_identifiers() {
+		use super::tokenize_code;
+
+		assert_eq!(
+			tokenize_code("parseHTTPServer2 snake_case"),
+			vec!["parse", "HTTP", "Server", "2", " ", "snake", "_", "case"]
+		);
 	}
 }
