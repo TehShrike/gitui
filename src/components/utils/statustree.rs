@@ -3,7 +3,7 @@ use super::filetree::{
 };
 use anyhow::Result;
 use asyncgit::StatusItem;
-use std::{cell::Cell, cmp, collections::BTreeSet};
+use std::{cell::Cell, cmp, collections::BTreeSet, path::Path};
 
 //TODO: use new `filetreelist` crate
 
@@ -49,10 +49,18 @@ impl StatusTree {
 	pub fn update(&mut self, list: &[StatusItem]) -> Result<()> {
 		let last_collapsed = self.all_collapsed();
 
-		let last_selection =
-			self.selected_item().map(|e| e.info.full_path);
+		let last_selected_item = self.selected_item();
+		let last_selection = last_selected_item
+			.as_ref()
+			.map(|e| e.info.full_path.clone());
 
 		self.tree = FileTreeItems::new(list, &last_collapsed)?;
+
+		let selected_file_removed =
+			last_selected_item.is_some_and(|e| {
+				matches!(e.kind, FileTreeItemKind::File(_))
+					&& self.search_path(&e.info.full_path).is_err()
+			});
 		self.selection = last_selection.as_ref().map_or_else(
 			|| self.tree.items().first().map(|_| 0),
 			|last_selection| {
@@ -69,7 +77,30 @@ impl StatusTree {
 			self.selection = Some(self.find_visible_idx(idx));
 		}
 
+		// a removed file (e.g. one that was just staged) leaves the selection
+		// on whatever sorts after it, which may be a folder with no diff to show
+		if selected_file_removed {
+			self.selection = self
+				.selection
+				.map(|idx| self.nearest_visible_file(idx));
+		}
+
 		Ok(())
+	}
+
+	/// The first visible file at or after `idx`, else the last one before it
+	fn nearest_visible_file(&self, idx: usize) -> usize {
+		let is_visible_file = |i: &usize| {
+			self.is_visible_index(*i)
+				&& matches!(
+					self.tree[*i].kind,
+					FileTreeItemKind::File(_)
+				)
+		};
+		(idx..self.tree.len())
+			.find(is_visible_file)
+			.or_else(|| (0..idx).rev().find(is_visible_file))
+			.unwrap_or(idx)
 	}
 
 	/// Return which indices can be selected, taking into account that
@@ -197,13 +228,20 @@ impl StatusTree {
 			return None;
 		}
 
-		let res = self.tree.items().binary_search_by(|e| {
-			e.info.full_path.as_str().cmp(last_selection)
-		});
-		match res {
+		match self.search_path(last_selection) {
 			Ok(i) => Some(i),
 			Err(i) => Some(cmp::min(i, self.tree.len() - 1)),
 		}
+	}
+
+	/// Binary search for `path`, which only works with the same ordering
+	/// the status list is sorted in: by path component, so that `a/b`
+	/// comes before `a.rb`, unlike in plain string order.
+	fn search_path(&self, path: &str) -> Result<usize, usize> {
+		let path = Path::new(path);
+		self.tree
+			.items()
+			.binary_search_by(|e| Path::new(&e.info.full_path).cmp(path))
 	}
 
 	fn selection_updown(
@@ -565,6 +603,85 @@ mod tests {
 
 		tree.update(&string_vec_to_status(&["a", "b"])).unwrap();
 		assert_eq!(tree.selected_item().unwrap().info.full_path, "b");
+	}
+
+	#[test]
+	fn test_selection_skips_folder_when_file_removed() {
+		let mut tree = StatusTree::default();
+		tree.update(&string_vec_to_status(&["a", "b/c", "d"]))
+			.unwrap();
+		tree.selection = Some(0);
+		assert_eq!(tree.selected_item().unwrap().info.full_path, "a");
+
+		//0 b/
+		//1   c
+		//2 d
+		tree.update(&string_vec_to_status(&["b/c", "d"])).unwrap();
+		assert_eq!(
+			tree.selected_item().unwrap().info.full_path,
+			"b/c"
+		);
+	}
+
+	#[test]
+	fn test_selection_after_removal_uses_path_order() {
+		// in path order `prep/...` sorts before `prep.rb`, unlike in string order
+		let before = [
+			"lib/prep/group/additions.rb",
+			"lib/prep/group/additions_x.rb",
+			"lib/prep/group/party/additions.rb",
+			"lib/prep/group/removals.rb",
+			"lib/prep/substitute.rb",
+			"lib/prep.rb",
+			"lib/workflow/get.rb",
+			"lib.rb",
+			"test/automated/planned.rb",
+			"test/automated/workflow/get.rb",
+		];
+		let mut tree = StatusTree::default();
+		tree.update(&string_vec_to_status(&before)).unwrap();
+		tree.selection = tree.tree.items().iter().position(|i| {
+			i.info.full_path == "lib/prep/group/additions_x.rb"
+		});
+
+		let after: Vec<&str> = before
+			.iter()
+			.copied()
+			.filter(|p| *p != "lib/prep/group/additions_x.rb")
+			.collect();
+		tree.update(&string_vec_to_status(&after)).unwrap();
+		assert_eq!(
+			tree.selected_item().unwrap().info.full_path,
+			"lib/prep/group/party/additions.rb"
+		);
+	}
+
+	#[test]
+	fn test_selection_skips_collapsed_folder_when_file_removed() {
+		let mut tree = StatusTree::default();
+		tree.update(&string_vec_to_status(&["a", "b/c", "d"]))
+			.unwrap();
+		tree.collapse("b", 1);
+		tree.selection = Some(0);
+
+		tree.update(&string_vec_to_status(&["b/c", "d"])).unwrap();
+		assert_eq!(tree.selected_item().unwrap().info.full_path, "d");
+	}
+
+	#[test]
+	fn test_selection_falls_back_to_previous_file_when_last_removed()
+	{
+		let mut tree = StatusTree::default();
+		tree.update(&string_vec_to_status(&["a", "b/c/d", "e"]))
+			.unwrap();
+		tree.selection = Some(4);
+		assert_eq!(tree.selected_item().unwrap().info.full_path, "e");
+
+		tree.update(&string_vec_to_status(&["a", "b/c/d"])).unwrap();
+		assert_eq!(
+			tree.selected_item().unwrap().info.full_path,
+			"b/c/d"
+		);
 	}
 
 	#[test]
