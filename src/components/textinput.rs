@@ -497,6 +497,13 @@ impl TextInputComponent {
 				ctrl: true,
 				alt: false,
 				..
+			}
+			// macOS terminals send Option+Right as Alt+Right
+			| Input {
+				key: Key::Right,
+				ctrl: false,
+				alt: true,
+				..
 			} => {
 				ta.move_cursor(CursorMove::WordForward);
 				true
@@ -511,6 +518,13 @@ impl TextInputComponent {
 				key: Key::Left,
 				ctrl: true,
 				alt: false,
+				..
+			}
+			// macOS terminals send Option+Left as Alt+Left
+			| Input {
+				key: Key::Left,
+				ctrl: false,
+				alt: true,
 				..
 			} => {
 				ta.move_cursor(CursorMove::WordBack);
@@ -885,6 +899,36 @@ mod tests {
 			let save_cursor = ta.cursor();
 			ta.move_cursor(CursorMove::WordBack);
 			assert_eq!(ta.cursor(), save_cursor);
+		}
+	}
+
+	#[test]
+	fn test_alt_arrow_word_movement() {
+		let env = Environment::test_env();
+		let mut comp = TextInputComponent::new(&env, "", "", false);
+		comp.show_inner_textarea();
+		comp.set_text(String::from("foo bar baz"));
+
+		let alt = |key| Input {
+			key,
+			alt: true,
+			..Input::default()
+		};
+
+		if let Some(ta) = &mut comp.textarea {
+			ta.move_cursor(CursorMove::Head);
+			assert!(TextInputComponent::process_inputs(
+				ta,
+				&alt(Key::Right)
+			));
+			assert_eq!(ta.cursor(), (0, 4));
+
+			ta.move_cursor(CursorMove::End);
+			assert!(TextInputComponent::process_inputs(
+				ta,
+				&alt(Key::Left)
+			));
+			assert_eq!(ta.cursor(), (0, 8));
 		}
 	}
 }
