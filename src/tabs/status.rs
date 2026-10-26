@@ -349,6 +349,16 @@ impl Status {
 					self.index.focus(false);
 					self.index_wd.focus(false);
 
+					// keep highlighting the file the diff belongs to
+					match self.diff_target {
+						DiffTarget::Stage => {
+							self.index.show_selection(true);
+						}
+						DiffTarget::WorkingDir => {
+							self.index_wd.show_selection(true);
+						}
+					}
+
 					self.diff.focus(true);
 				}
 			}

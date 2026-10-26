@@ -66,6 +66,11 @@ impl ChangesComponent {
 		self.files.show_selection(focus);
 	}
 
+	///
+	pub const fn show_selection(&mut self, show: bool) {
+		self.files.show_selection(show);
+	}
+
 	/// returns true if list is empty
 	pub const fn is_empty(&self) -> bool {
 		self.files.is_empty()
