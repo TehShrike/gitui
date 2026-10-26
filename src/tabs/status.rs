@@ -11,7 +11,7 @@ use crate::{
 	options::SharedOptions,
 	queue::{Action, InternalEvent, NeedsUpdate, Queue, ResetItem},
 	strings, try_or_popup,
-	ui::style::Theme,
+	ui::style::{SharedTheme, Theme},
 };
 use anyhow::Result;
 use asyncgit::{
@@ -81,6 +81,7 @@ pub struct Status {
 	git_action_executed: bool,
 	options: SharedOptions,
 	key_config: SharedKeyConfig,
+	theme: SharedTheme,
 }
 
 impl DrawableComponent for Status {
@@ -106,9 +107,10 @@ impl DrawableComponent for Status {
 			.direction(Direction::Horizontal)
 			.constraints(
 				if self.focus == Focus::Diff {
+					let diff = self.theme.diff_focus_percentage();
 					[
-						Constraint::Percentage(0),
-						Constraint::Percentage(100),
+						Constraint::Percentage(100 - diff),
+						Constraint::Percentage(diff),
 					]
 				} else {
 					[
@@ -198,6 +200,7 @@ impl Status {
 				env.repo.clone(),
 			),
 			key_config: env.key_config.clone(),
+			theme: env.theme.clone(),
 			options: env.options.clone(),
 			repo: env.repo.clone(),
 		}
