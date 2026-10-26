@@ -10,6 +10,7 @@ use crate::{
 	keys::{key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{Action, InternalEvent, NeedsUpdate, Queue, ResetItem},
+	stage_undo::SharedStageUndo,
 	strings, try_or_popup,
 	ui::style::{SharedTheme, Theme},
 };
@@ -82,6 +83,7 @@ pub struct Status {
 	options: SharedOptions,
 	key_config: SharedKeyConfig,
 	theme: SharedTheme,
+	stage_undo: SharedStageUndo,
 }
 
 impl DrawableComponent for Status {
@@ -201,6 +203,7 @@ impl Status {
 			),
 			key_config: env.key_config.clone(),
 			theme: env.theme.clone(),
+			stage_undo: env.stage_undo.clone(),
 			options: env.options.clone(),
 			repo: env.repo.clone(),
 		}
@@ -346,18 +349,7 @@ impl Status {
 					self.diff.focus(false);
 				}
 				Focus::Diff => {
-					self.index.focus(false);
-					self.index_wd.focus(false);
-
-					// keep highlighting the file the diff belongs to
-					match self.diff_target {
-						DiffTarget::Stage => {
-							self.index.show_selection(true);
-						}
-						DiffTarget::WorkingDir => {
-							self.index_wd.show_selection(true);
-						}
-					}
+					self.highlight_diff_file();
 
 					self.diff.focus(true);
 				}
@@ -369,6 +361,62 @@ impl Status {
 		}
 
 		Ok(false)
+	}
+
+	/// unfocus the file lists but keep highlighting the file the diff belongs to
+	fn highlight_diff_file(&mut self) {
+		self.index.focus(false);
+		self.index_wd.focus(false);
+
+		match self.diff_target {
+			DiffTarget::Stage => self.index.show_selection(true),
+			DiffTarget::WorkingDir => {
+				self.index_wd.show_selection(true);
+			}
+		}
+	}
+
+	/// undo the last stage or unstage and show where the change went back to
+	fn undo_stage(&mut self) -> Result<()> {
+		let Some(entry) = self.stage_undo.borrow_mut().pop() else {
+			return Ok(());
+		};
+		if let Err(e) =
+			sync::undo_staging(&self.repo.borrow(), &entry.undo)
+		{
+			self.stage_undo.borrow_mut().clear();
+			anyhow::bail!("{e}\n\nundo history has been cleared");
+		}
+
+		let target = if entry.staged {
+			DiffTarget::WorkingDir
+		} else {
+			DiffTarget::Stage
+		};
+		match target {
+			DiffTarget::Stage => &mut self.index,
+			DiffTarget::WorkingDir => &mut self.index_wd,
+		}
+		.select_path(entry.undo.path.clone());
+		self.diff.select_index_line_on_update(
+			entry.undo.path,
+			target == DiffTarget::Stage,
+			entry.undo.index_line,
+		);
+
+		if self.is_focus_on_diff() {
+			self.set_diff_target(target);
+			self.highlight_diff_file();
+		} else {
+			self.switch_focus(match target {
+				DiffTarget::Stage => Focus::Stage,
+				DiffTarget::WorkingDir => Focus::WorkDir,
+			})?;
+		}
+
+		self.queue.push(InternalEvent::Update(NeedsUpdate::ALL));
+
+		Ok(())
 	}
 
 	fn set_diff_target(&mut self, target: DiffTarget) {
@@ -750,6 +798,12 @@ impl Component for Status {
 			);
 
 			out.push(CommandInfo::new(
+				strings::commands::undo_stage(&self.key_config),
+				true,
+				!self.stage_undo.borrow().is_empty(),
+			));
+
+			out.push(CommandInfo::new(
 				strings::commands::open_branch_select_popup(
 					&self.key_config,
 				),
@@ -877,6 +931,17 @@ impl Component for Status {
 					&& !self.index_wd.is_empty()
 				{
 					self.switch_focus(Focus::WorkDir).map(Into::into)
+				} else if key_match(
+					k,
+					self.key_config.keys.undo_stage,
+				) && !self.stage_undo.borrow().is_empty()
+				{
+					try_or_popup!(
+						self,
+						"undo stage:",
+						self.undo_stage()
+					);
+					Ok(EventState::Consumed)
 				} else if key_match(
 					k,
 					self.key_config.keys.select_branch,

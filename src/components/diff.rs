@@ -9,6 +9,7 @@ use crate::{
 	keys::{key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{Action, InternalEvent, NeedsUpdate, Queue, ResetItem},
+	stage_undo::SharedStageUndo,
 	string_utils::tabs_to_spaces,
 	string_utils::trim_offset,
 	strings, try_or_popup,
@@ -227,6 +228,9 @@ pub struct DiffComponent {
 	key_config: SharedKeyConfig,
 	is_immutable: bool,
 	options: SharedOptions,
+	stage_undo: SharedStageUndo,
+	// hunk to select once the diff of this file arrives: (path, is_stage, index line)
+	pending_hunk: Option<(String, bool, u32)>,
 }
 
 impl DiffComponent {
@@ -249,6 +253,8 @@ impl DiffComponent {
 			is_immutable,
 			repo: env.repo.clone(),
 			options: env.options.clone(),
+			stage_undo: env.stage_undo.clone(),
+			pending_hunk: None,
 		}
 	}
 	///
@@ -326,6 +332,59 @@ impl DiffComponent {
 				};
 				self.update_selection(old_selection);
 			}
+
+			self.apply_pending_hunk();
+		}
+	}
+
+	/// once the diff of `path` arrives, select the hunk around `index_line`
+	/// (a line number in the index version of the file)
+	pub fn select_index_line_on_update(
+		&mut self,
+		path: String,
+		is_stage: bool,
+		index_line: u32,
+	) {
+		self.pending_hunk = Some((path, is_stage, index_line));
+	}
+
+	fn apply_pending_hunk(&mut self) {
+		let Some((path, is_stage, index_line)) = &self.pending_hunk
+		else {
+			return;
+		};
+		if *path != self.current.path
+			|| *is_stage != self.current.is_stage
+		{
+			return;
+		}
+		let (is_stage, index_line) = (*is_stage, *index_line);
+		self.pending_hunk = None;
+
+		let Some(diff) = &self.diff else { return };
+		// the index is the new side of the staged diff and the old side of the unstaged one
+		let hunk_end = |hunk: &asyncgit::sync::diff::Hunk| {
+			hunk.lines
+				.iter()
+				.filter_map(|l| {
+					if is_stage {
+						l.position.new_lineno
+					} else {
+						l.position.old_lineno
+					}
+				})
+				.max()
+		};
+		let hunk_index = diff
+			.hunks
+			.iter()
+			.position(|h| {
+				hunk_end(h).is_some_and(|end| end >= index_line)
+			})
+			.or_else(|| diff.hunks.len().checked_sub(1));
+
+		if let Some(hunk_index) = hunk_index {
+			self.select_hunk(hunk_index);
 		}
 	}
 
@@ -709,12 +768,12 @@ impl DiffComponent {
 				try_or_popup!(
 					self,
 					"(un)stage lines:",
-					sync::stage_lines(
+					self.undoable(|| sync::stage_lines(
 						&self.repo.borrow(),
 						&self.current.path,
 						self.is_stage(),
 						&selected_lines,
-					)
+					))
 				);
 
 				self.queue_update();
@@ -765,6 +824,18 @@ impl DiffComponent {
 		Ok(())
 	}
 
+	/// run a staging operation so that it can be undone
+	fn undoable<T, E>(
+		&self,
+		op: impl FnOnce() -> Result<T, E>,
+	) -> Result<T, E> {
+		self.stage_undo.borrow_mut().record(
+			&self.repo.borrow(),
+			!self.is_stage(),
+			op,
+		)
+	}
+
 	fn stage_unstage_file(&self) -> Result<()> {
 		let repo = self.repo.borrow();
 		if self.current.is_stage {
@@ -808,27 +879,34 @@ impl DiffComponent {
 	}
 
 	fn diff_hunk_move_up_down(&mut self, direction: isize) {
-		let Some(diff) = &self.diff else { return };
+		if self.diff.is_none() {
+			return;
+		}
 		let hunk_index = self.calc_hunk_move_target(direction);
 		// return if selected_hunk not change
 		if self.selected_hunk == hunk_index {
 			return;
 		}
 		if let Some(hunk_index) = hunk_index {
-			let line_index = diff
-				.hunks
-				.iter()
-				.take(hunk_index)
-				.fold(0, |sum, hunk| sum + hunk.lines.len());
-			let hunk = &diff.hunks[hunk_index];
-			self.selection = Selection::Single(line_index);
-			self.selected_hunk = Some(hunk_index);
-			self.vertical_scroll.move_area_to_visible(
-				self.current_size.get().1 as usize,
-				line_index,
-				line_index.saturating_add(hunk.lines.len()),
-			);
+			self.select_hunk(hunk_index);
 		}
+	}
+
+	fn select_hunk(&mut self, hunk_index: usize) {
+		let Some(diff) = &self.diff else { return };
+		let line_index = diff
+			.hunks
+			.iter()
+			.take(hunk_index)
+			.fold(0, |sum, hunk| sum + hunk.lines.len());
+		let hunk = &diff.hunks[hunk_index];
+		self.selection = Selection::Single(line_index);
+		self.selected_hunk = Some(hunk_index);
+		self.vertical_scroll.move_area_to_visible(
+			self.current_size.get().1 as usize,
+			line_index,
+			line_index.saturating_add(hunk.lines.len()),
+		);
 	}
 
 	const fn is_stage(&self) -> bool {
@@ -1066,7 +1144,7 @@ impl Component for DiffComponent {
 					try_or_popup!(
 						self,
 						"hunk error:",
-						self.stage_unstage_hunk()
+						self.undoable(|| self.stage_unstage_hunk())
 					);
 
 					Ok(EventState::Consumed)
@@ -1079,7 +1157,7 @@ impl Component for DiffComponent {
 					try_or_popup!(
 						self,
 						"(un)stage file:",
-						self.stage_unstage_file()
+						self.undoable(|| self.stage_unstage_file())
 					);
 
 					Ok(EventState::Consumed)
@@ -1147,6 +1225,51 @@ mod tests {
 	use std::io::Write;
 	use std::rc::Rc;
 	use tempfile::NamedTempFile;
+
+	fn hunk(
+		old_lines: std::ops::Range<u32>,
+	) -> asyncgit::sync::diff::Hunk {
+		asyncgit::sync::diff::Hunk {
+			header_hash: u64::from(old_lines.start),
+			lines: old_lines
+				.map(|n| DiffLine {
+					content: "".into(),
+					line_type: DiffLineType::Delete,
+					position: DiffLinePosition {
+						old_lineno: Some(n),
+						new_lineno: None,
+					},
+					inline_highlights: Vec::new(),
+				})
+				.collect(),
+		}
+	}
+
+	#[test]
+	fn test_pending_hunk_selected_when_its_diff_arrives() {
+		let env = Environment::test_env();
+		let mut diff = DiffComponent::new(&env, false);
+		let file_diff = asyncgit::FileDiff {
+			hunks: vec![hunk(1..4), hunk(20..24)],
+			lines: 7,
+			..Default::default()
+		};
+
+		diff.select_index_line_on_update("f".into(), false, 21);
+
+		// a diff of another file leaves the request pending
+		let other_diff = asyncgit::FileDiff {
+			hunks: vec![hunk(5..6)],
+			lines: 1,
+			..Default::default()
+		};
+		diff.update("g".into(), false, other_diff);
+		assert!(diff.pending_hunk.is_some());
+
+		diff.update("f".into(), false, file_diff);
+		assert_eq!(diff.selected_hunk, Some(1));
+		assert!(diff.pending_hunk.is_none());
+	}
 
 	#[test]
 	fn test_line_break() {

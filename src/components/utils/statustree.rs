@@ -18,6 +18,9 @@ pub struct StatusTree {
 	pub available_selections: Vec<usize>,
 
 	pub window_height: Cell<Option<usize>>,
+
+	// path to select once an update brings it into the tree
+	pending_selection: Option<String>,
 }
 
 ///
@@ -85,7 +88,25 @@ impl StatusTree {
 				.map(|idx| self.nearest_visible_file(idx));
 		}
 
+		self.apply_pending_selection();
+
 		Ok(())
+	}
+
+	/// select `path` now if it is in the tree, otherwise once an update brings it in
+	pub fn select_path(&mut self, path: String) {
+		self.pending_selection = Some(path);
+		self.apply_pending_selection();
+	}
+
+	fn apply_pending_selection(&mut self) {
+		let Some(path) = &self.pending_selection else {
+			return;
+		};
+		if let Ok(idx) = self.search_path(path) {
+			self.selection = Some(self.find_visible_idx(idx));
+			self.pending_selection = None;
+		}
 	}
 
 	/// The first visible file at or after `idx`, else the last one before it
@@ -160,6 +181,7 @@ impl StatusTree {
 
 	///
 	pub fn move_selection(&mut self, dir: MoveSelection) -> bool {
+		self.pending_selection = None;
 		self.selection.is_some_and(|selection| {
 			let selection_change = match dir {
 				MoveSelection::Up => {
@@ -239,9 +261,9 @@ impl StatusTree {
 	/// comes before `a.rb`, unlike in plain string order.
 	fn search_path(&self, path: &str) -> Result<usize, usize> {
 		let path = Path::new(path);
-		self.tree
-			.items()
-			.binary_search_by(|e| Path::new(&e.info.full_path).cmp(path))
+		self.tree.items().binary_search_by(|e| {
+			Path::new(&e.info.full_path).cmp(path)
+		})
 	}
 
 	fn selection_updown(
@@ -682,6 +704,39 @@ mod tests {
 			tree.selected_item().unwrap().info.full_path,
 			"b/c/d"
 		);
+	}
+
+	#[test]
+	fn test_select_path_waits_for_update() {
+		let mut tree = StatusTree::default();
+		tree.update(&string_vec_to_status(&["a", "c"])).unwrap();
+		tree.selection = Some(0);
+
+		tree.select_path("b".into());
+		assert_eq!(tree.selected_item().unwrap().info.full_path, "a");
+
+		tree.update(&string_vec_to_status(&["a", "b", "c"]))
+			.unwrap();
+		assert_eq!(tree.selected_item().unwrap().info.full_path, "b");
+
+		// once applied, later updates keep the normal behavior
+		tree.selection = Some(2);
+		tree.update(&string_vec_to_status(&["a", "b", "c", "d"]))
+			.unwrap();
+		assert_eq!(tree.selected_item().unwrap().info.full_path, "c");
+	}
+
+	#[test]
+	fn test_select_path_cancelled_by_moving() {
+		let mut tree = StatusTree::default();
+		tree.update(&string_vec_to_status(&["a", "c"])).unwrap();
+		tree.selection = Some(0);
+
+		tree.select_path("b".into());
+		tree.move_selection(MoveSelection::Down);
+		tree.update(&string_vec_to_status(&["a", "b", "c"]))
+			.unwrap();
+		assert_eq!(tree.selected_item().unwrap().info.full_path, "c");
 	}
 
 	#[test]

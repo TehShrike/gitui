@@ -74,6 +74,7 @@ mod popup_stack;
 mod popups;
 mod queue;
 mod spinner;
+mod stage_undo;
 mod string_utils;
 mod strings;
 mod tabs;

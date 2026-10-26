@@ -9,6 +9,7 @@ use crate::{
 	keys::{key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{Action, InternalEvent, NeedsUpdate, Queue, ResetItem},
+	stage_undo::SharedStageUndo,
 	strings, try_or_popup,
 };
 use anyhow::Result;
@@ -28,6 +29,7 @@ pub struct ChangesComponent {
 	queue: Queue,
 	key_config: SharedKeyConfig,
 	options: SharedOptions,
+	stage_undo: SharedStageUndo,
 }
 
 impl ChangesComponent {
@@ -44,6 +46,7 @@ impl ChangesComponent {
 			queue: env.queue.clone(),
 			key_config: env.key_config.clone(),
 			options: env.options.clone(),
+			stage_undo: env.stage_undo.clone(),
 			repo: env.repo.clone(),
 		}
 	}
@@ -64,6 +67,11 @@ impl ChangesComponent {
 	pub fn focus_select(&mut self, focus: bool) {
 		self.files.focus(focus);
 		self.files.show_selection(focus);
+	}
+
+	/// select `path` now if it is listed, otherwise once it shows up
+	pub fn select_path(&mut self, path: String) {
+		self.files.select_path(path);
 	}
 
 	///
@@ -131,6 +139,18 @@ impl ChangesComponent {
 		}
 
 		Ok(false)
+	}
+
+	/// run a staging operation so that it can be undone
+	fn undoable<T>(
+		&self,
+		op: impl FnOnce() -> Result<T>,
+	) -> Result<T> {
+		self.stage_undo.borrow_mut().record(
+			&self.repo.borrow(),
+			self.is_working_dir,
+			op,
+		)
 	}
 
 	fn index_add_all(&self) -> Result<()> {
@@ -257,7 +277,7 @@ impl Component for ChangesComponent {
 					try_or_popup!(
 						self,
 						"staging error:",
-						self.index_add_remove()
+						self.undoable(|| self.index_add_remove())
 					);
 
 					self.queue.push(InternalEvent::Update(
@@ -273,10 +293,10 @@ impl Component for ChangesComponent {
 						try_or_popup!(
 							self,
 							"staging all error:",
-							self.index_add_all()
+							self.undoable(|| self.index_add_all())
 						);
 					} else {
-						self.stage_remove_all()?;
+						self.undoable(|| self.stage_remove_all())?;
 					}
 					self.queue
 						.push(InternalEvent::StatusLastFileMoved);

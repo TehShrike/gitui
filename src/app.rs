@@ -27,6 +27,7 @@ use crate::{
 		StackablePopupOpen,
 	},
 	setup_popups,
+	stage_undo::SharedStageUndo,
 	strings::{self, ellipsis_trim_start, order},
 	tabs::{FilesTab, Revlog, StashList, Stashing, Status},
 	try_or_popup,
@@ -127,6 +128,7 @@ pub struct Environment {
 	pub key_config: SharedKeyConfig,
 	pub repo: RepoPathRef,
 	pub options: SharedOptions,
+	pub stage_undo: SharedStageUndo,
 	pub sender_git: Sender<AsyncGitNotification>,
 	pub sender_app: Sender<AsyncAppNotification>,
 }
@@ -142,6 +144,7 @@ impl Environment {
 			key_config: Default::default(),
 			repo: RefCell::new(RepoPath::Path(Default::default())),
 			options: Rc::new(RefCell::new(Options::test_env())),
+			stage_undo: Default::default(),
 			sender_git: unbounded().0,
 			sender_app: unbounded().0,
 		}
@@ -171,6 +174,7 @@ impl App {
 			theme: Rc::new(theme),
 			key_config: Rc::new(key_config),
 			options: Options::new(repo.clone()),
+			stage_undo: Rc::default(),
 			repo,
 			sender_git,
 			sender_app,

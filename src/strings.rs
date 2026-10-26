@@ -1148,6 +1148,16 @@ pub mod commands {
 			CMD_GROUP_GENERAL,
 		)
 	}
+	pub fn undo_stage(key_config: &SharedKeyConfig) -> CommandText {
+		CommandText::new(
+			format!(
+				"Undo Stage [{}]",
+				key_config.get_hint(key_config.keys.undo_stage),
+			),
+			"undo the last stage or unstage",
+			CMD_GROUP_GENERAL,
+		)
+	}
 	pub fn commit_open(key_config: &SharedKeyConfig) -> CommandText {
 		CommandText::new(
 			format!(

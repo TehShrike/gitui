@@ -75,6 +75,11 @@ impl StatusTreeComponent {
 		Ok(())
 	}
 
+	/// select `path` now if it is listed, otherwise once it shows up
+	pub fn select_path(&mut self, path: String) {
+		self.tree.select_path(path);
+	}
+
 	///
 	pub fn selection(&self) -> Option<FileTreeItem> {
 		self.tree.selected_item()
