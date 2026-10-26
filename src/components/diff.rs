@@ -765,6 +765,28 @@ impl DiffComponent {
 		Ok(())
 	}
 
+	fn stage_unstage_file(&self) -> Result<()> {
+		let repo = self.repo.borrow();
+		if self.current.is_stage {
+			sync::reset_stage(&repo, &self.current.path)?;
+		} else {
+			let path = Path::new(&self.current.path);
+			// a deleted file has to be staged as a removal
+			if Path::new(&sync::utils::repo_work_dir(&repo)?)
+				.join(path)
+				.exists()
+			{
+				sync::stage_add_file(&repo, path)?;
+			} else {
+				sync::stage_addremoved(&repo, path)?;
+			}
+		}
+
+		self.queue_update();
+
+		Ok(())
+	}
+
 	fn calc_hunk_move_target(
 		&self,
 		direction: isize,
@@ -948,6 +970,16 @@ impl Component for DiffComponent {
 				true,
 				self.focused() && self.is_stage(),
 			));
+			out.push(CommandInfo::new(
+				strings::commands::diff_file_stage(&self.key_config),
+				self.diff.is_some(),
+				self.focused() && !self.is_stage(),
+			));
+			out.push(CommandInfo::new(
+				strings::commands::diff_file_unstage(&self.key_config),
+				self.diff.is_some(),
+				self.focused() && self.is_stage(),
+			));
 		}
 
 		out.push(CommandInfo::new(
@@ -1035,6 +1067,19 @@ impl Component for DiffComponent {
 						self,
 						"hunk error:",
 						self.stage_unstage_hunk()
+					);
+
+					Ok(EventState::Consumed)
+				} else if key_match(
+					e,
+					self.key_config.keys.diff_stage_file,
+				) && !self.is_immutable
+					&& self.diff.is_some()
+				{
+					try_or_popup!(
+						self,
+						"(un)stage file:",
+						self.stage_unstage_file()
 					);
 
 					Ok(EventState::Consumed)

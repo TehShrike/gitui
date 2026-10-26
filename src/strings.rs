@@ -816,6 +816,30 @@ pub mod commands {
 			CMD_GROUP_DIFF,
 		)
 	}
+	pub fn diff_file_stage(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Stage file [{}]",
+				key_config.get_hint(key_config.keys.diff_stage_file),
+			),
+			"stage the entire file",
+			CMD_GROUP_DIFF,
+		)
+	}
+	pub fn diff_file_unstage(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Unstage file [{}]",
+				key_config.get_hint(key_config.keys.diff_stage_file),
+			),
+			"unstage the entire file",
+			CMD_GROUP_DIFF,
+		)
+	}
 	pub fn diff_lines_unstage(
 		key_config: &SharedKeyConfig,
 	) -> CommandText {
