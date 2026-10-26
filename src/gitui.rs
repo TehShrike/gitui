@@ -232,6 +232,102 @@ mod tests {
 	}
 
 	#[test]
+	fn staging_last_change_from_diff_leaves_diff() {
+		let (temp_dir, repo) = repo_init_suffix(Some("-focus"));
+		{
+			std::fs::write(temp_dir.path().join("a.txt"), "1\n")
+				.unwrap();
+			let mut index = repo.index().unwrap();
+			index.add_path(std::path::Path::new("a.txt")).unwrap();
+			index.write().unwrap();
+			let tree =
+				repo.find_tree(index.write_tree().unwrap()).unwrap();
+			let sig = repo.signature().unwrap();
+			let head = repo.head().unwrap().peel_to_commit().unwrap();
+			repo.commit(
+				Some("HEAD"),
+				&sig,
+				&sig,
+				"add a",
+				&tree,
+				&[&head],
+			)
+			.unwrap();
+			std::fs::write(temp_dir.path().join("a.txt"), "2\n")
+				.unwrap();
+		}
+
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			repo_path: temp_dir.path().to_str().unwrap().into(),
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+		let key_config = KeyConfig::default();
+		let mut gitui = Gitui::new(
+			cliargs,
+			Theme::init(&PathBuf::new()),
+			&key_config,
+			Updater::Ticker,
+		)
+		.unwrap();
+		let mut terminal =
+			Terminal::new(TestBackend::new(160, 16)).unwrap();
+
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Status,
+		));
+
+		// staging the only change from its diff moves focus to the staged list
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Diff,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Diff,
+		));
+		gitui.input_event(KeyCode::Char('a'), KeyModifiers::empty());
+		gitui.draw(&mut terminal).unwrap();
+		assert!(terminal
+			.backend()
+			.to_string()
+			.contains("To unstaged [w]"));
+
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Status,
+		));
+
+		// unstaging it again from its diff moves focus to the unstaged list
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Diff,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Diff,
+		));
+		gitui.input_event(KeyCode::Char('a'), KeyModifiers::empty());
+		gitui.draw(&mut terminal).unwrap();
+		assert!(terminal
+			.backend()
+			.to_string()
+			.contains("To stage [w]"));
+	}
+
+	#[test]
 	fn gitui_starts() {
 		apply_common_filters!();
 

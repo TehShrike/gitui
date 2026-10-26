@@ -768,7 +768,7 @@ impl DiffComponent {
 				try_or_popup!(
 					self,
 					"(un)stage lines:",
-					self.undoable(|| sync::stage_lines(
+					self.run_staging(|| sync::stage_lines(
 						&self.repo.borrow(),
 						&self.current.path,
 						self.is_stage(),
@@ -824,16 +824,41 @@ impl DiffComponent {
 		Ok(())
 	}
 
-	/// run a staging operation so that it can be undone
-	fn undoable<T, E>(
+	/// run a staging operation so that it can be undone, and, like the
+	/// file lists do, report when it emptied the side this diff shows
+	fn run_staging<T, E>(
 		&self,
 		op: impl FnOnce() -> Result<T, E>,
 	) -> Result<T, E> {
-		self.stage_undo.borrow_mut().record(
+		let res = self.stage_undo.borrow_mut().record(
 			&self.repo.borrow(),
 			!self.is_stage(),
 			op,
-		)
+		)?;
+
+		if self.side_is_empty() {
+			self.queue.push(InternalEvent::StatusLastFileMoved);
+		}
+
+		Ok(res)
+	}
+
+	fn side_is_empty(&self) -> bool {
+		let repo = self.repo.borrow();
+		if self.is_stage() {
+			sync::status::get_status(
+				&repo,
+				sync::status::StatusType::Stage,
+				None,
+			)
+			.is_ok_and(|items| items.is_empty())
+		} else {
+			sync::is_workdir_clean(
+				&repo,
+				self.options.borrow().status_show_untracked(),
+			)
+			.unwrap_or(false)
+		}
 	}
 
 	fn stage_unstage_file(&self) -> Result<()> {
@@ -1144,7 +1169,7 @@ impl Component for DiffComponent {
 					try_or_popup!(
 						self,
 						"hunk error:",
-						self.undoable(|| self.stage_unstage_hunk())
+						self.run_staging(|| self.stage_unstage_hunk())
 					);
 
 					Ok(EventState::Consumed)
@@ -1157,7 +1182,7 @@ impl Component for DiffComponent {
 					try_or_popup!(
 						self,
 						"(un)stage file:",
-						self.undoable(|| self.stage_unstage_file())
+						self.run_staging(|| self.stage_unstage_file())
 					);
 
 					Ok(EventState::Consumed)

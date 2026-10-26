@@ -33,7 +33,7 @@ use ratatui::{
 };
 
 /// what part of the screen is focused
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 enum Focus {
 	WorkDir,
 	Diff,
@@ -617,8 +617,16 @@ impl Status {
 	}
 
 	pub fn last_file_moved(&mut self) -> Result<()> {
-		if !self.is_focus_on_diff() && self.is_visible() {
-			self.switch_focus(self.focus.toggled_focus())?;
+		if self.is_visible() {
+			// a focused diff counts as the list it shows
+			let list_focus = match (self.focus, self.diff_target) {
+				(Focus::Diff, DiffTarget::WorkingDir) => {
+					Focus::WorkDir
+				}
+				(Focus::Diff, DiffTarget::Stage) => Focus::Stage,
+				(focus, _) => focus,
+			};
+			self.switch_focus(list_focus.toggled_focus())?;
 		}
 		Ok(())
 	}
