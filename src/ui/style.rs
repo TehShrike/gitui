@@ -45,8 +45,6 @@ pub struct Theme {
 	tag_fg: Color,
 	branch_fg: Color,
 	line_break: String,
-	/// Width of the diff, in percent, while it has focus in the status tab
-	diff_focus_percentage: u16,
 	block_title_focused: Color,
 	syntax: String,
 }
@@ -241,10 +239,6 @@ impl Theme {
 		self.line_break.clone()
 	}
 
-	pub fn diff_focus_percentage(&self) -> u16 {
-		self.diff_focus_percentage.min(100)
-	}
-
 	pub fn commandbar(&self, enabled: bool) -> Style {
 		if enabled {
 			Style::default().fg(self.command_fg)
@@ -395,7 +389,6 @@ impl Default for Theme {
 			tag_fg: Color::LightMagenta,
 			branch_fg: Color::LightYellow,
 			line_break: "¶".to_string(),
-			diff_focus_percentage: 100,
 			block_title_focused: Color::Reset,
 			// Available themes can be found in:
 			// [ThemeSet::load_defaults function](https://github.com/trishume/syntect/blob/7fe13c0fd53cdfa0f9fea1aa14c5ba37f81d8b71/src/dumps.rs#L215).

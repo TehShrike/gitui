@@ -109,15 +109,3 @@ Word-level highlights for additions and deletions within a diff line can be conf
 By default:
 * `diff_word_add` uses `fg: DarkGray` and `bg: Green`.
 * `diff_word_delete` uses `fg: White` and `bg: Red`.
-
-## Customizing the focused diff width
-
-When the diff in the status tab has focus it takes up the full width, hiding the file lists. To keep the file lists visible, set `diff_focus_percentage` to the share of the width (in percent) that the focused diff should take:
-
-```ron
-(
-    diff_focus_percentage: Some(70),
-)
-```
-
-By default, `diff_focus_percentage` is set to `100`.
