@@ -85,6 +85,20 @@ pub struct Status {
 	stage_undo: SharedStageUndo,
 }
 
+/// Terminal width, in columns, from which the focused diff leaves room for
+/// the file lists instead of taking the full width.
+const DIFF_FOCUS_WIDE_COLUMNS: u16 = 140;
+
+/// Horizontal split between the file lists and the diff while the diff has
+/// focus, for a status tab `width` columns wide.
+fn diff_focus_split(width: u16) -> [Constraint; 2] {
+	if width >= DIFF_FOCUS_WIDE_COLUMNS {
+		[Constraint::Percentage(30), Constraint::Percentage(70)]
+	} else {
+		[Constraint::Percentage(0), Constraint::Percentage(100)]
+	}
+}
+
 impl DrawableComponent for Status {
 	fn draw(
 		&self,
@@ -108,10 +122,7 @@ impl DrawableComponent for Status {
 			.direction(Direction::Horizontal)
 			.constraints(
 				if self.focus == Focus::Diff {
-					[
-						Constraint::Percentage(0),
-						Constraint::Percentage(100),
-					]
+					diff_focus_split(rects[0].width)
 				} else {
 					[
 						Constraint::Percentage(50),
@@ -1059,5 +1070,34 @@ impl Component for Status {
 		self.update()?;
 
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn focused_diff_fills_narrow_terminals() {
+		assert_eq!(
+			diff_focus_split(80),
+			[Constraint::Percentage(0), Constraint::Percentage(100)]
+		);
+		assert_eq!(
+			diff_focus_split(DIFF_FOCUS_WIDE_COLUMNS - 1),
+			[Constraint::Percentage(0), Constraint::Percentage(100)]
+		);
+	}
+
+	#[test]
+	fn focused_diff_leaves_room_on_wide_terminals() {
+		assert_eq!(
+			diff_focus_split(DIFF_FOCUS_WIDE_COLUMNS),
+			[Constraint::Percentage(30), Constraint::Percentage(70)]
+		);
+		assert_eq!(
+			diff_focus_split(200),
+			[Constraint::Percentage(30), Constraint::Percentage(70)]
+		);
 	}
 }
