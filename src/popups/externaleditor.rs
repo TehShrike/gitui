@@ -4,6 +4,9 @@ use crate::{
 		visibility_blocking, CommandBlocking, CommandInfo, Component,
 		DrawableComponent, EventState,
 	},
+	input::{
+		disable_keyboard_enhancement, enable_keyboard_enhancement,
+	},
 	keys::SharedKeyConfig,
 	strings,
 	ui::{self, style::SharedTheme},
@@ -61,9 +64,11 @@ impl ExternalEditorPopup {
 			bail!("file not found: {path:?}");
 		}
 
+		disable_keyboard_enhancement();
 		io::stdout().execute(LeaveAlternateScreen)?;
 		defer! {
 			io::stdout().execute(EnterAlternateScreen).expect("reset terminal");
+			enable_keyboard_enhancement();
 		}
 
 		let environment_options = ["GIT_EDITOR", "VISUAL", "EDITOR"];

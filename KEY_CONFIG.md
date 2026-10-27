@@ -34,6 +34,16 @@ Possible values for:
 
 Here is a [vim style key config](vim_style_key_config.ron) with `h`, `j`, `k`, `l` to navigate. Use it to copy the content into `key_bindings.ron` to get vim style key bindings.
 
+## Modified special keys
+
+Finishing a commit message (and an annotated tag message) is bound to `ctrl+enter`. Legacy terminal key encoding cannot tell `ctrl+enter` from `enter`, so gitui asks the terminal for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) at startup. Most current terminals support it (kitty, WezTerm, Ghostty, foot, Alacritty, Warp, recent iTerm2); inside tmux it needs `set -s extended-keys on`. In a terminal without it, `ctrl+enter` arrives as a plain `enter` and only inserts a newline, so rebind `commit` to something the legacy encoding can carry:
+
+```
+(
+    commit: Some(( code: Char('d'), modifiers: "CONTROL")),
+)
+```
+
 # Key Symbols
 
 Similar to the above GitUI allows you to change the way the UI visualizes key combos containing special keys like `enter`(default: `⏎`) and `shift`(default: `⇧`).

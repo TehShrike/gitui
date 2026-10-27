@@ -228,7 +228,7 @@ impl Default for KeysList {
 			view_submodule_parent: GituiKeyEvent::new(KeyCode::Char('p'),  KeyModifiers::empty()),
 			update_submodule: GituiKeyEvent::new(KeyCode::Char('u'),  KeyModifiers::empty()),
 			commit_history_next: GituiKeyEvent::new(KeyCode::Char('n'),  KeyModifiers::CONTROL),
-			commit: GituiKeyEvent::new(KeyCode::Char('d'),  KeyModifiers::CONTROL),
+			commit: GituiKeyEvent::new(KeyCode::Enter,  KeyModifiers::CONTROL),
 			newline: GituiKeyEvent::new(KeyCode::Enter,  KeyModifiers::empty()),
 			goto_line: GituiKeyEvent::new(KeyCode::Char('L'),  KeyModifiers::SHIFT),
 		}

@@ -98,7 +98,10 @@ use crossterm::{
 	ExecutableCommand,
 };
 use gitui::Gitui;
-use input::InputEvent;
+use input::{
+	disable_keyboard_enhancement, enable_keyboard_enhancement,
+	InputEvent,
+};
 use keys::KeyConfig;
 use ratatui::backend::CrosstermBackend;
 use scopeguard::defer;
@@ -239,10 +242,13 @@ fn run_app(
 fn setup_terminal() -> Result<()> {
 	enable_raw_mode()?;
 	io::stdout().execute(EnterAlternateScreen)?;
+	enable_keyboard_enhancement();
 	Ok(())
 }
 
 fn shutdown_terminal() {
+	disable_keyboard_enhancement();
+
 	let leave_screen =
 		io::stdout().execute(LeaveAlternateScreen).map(|_f| ());
 
