@@ -73,8 +73,10 @@ fn build_inline_spans(
 
 	// Step 2: apply tab expansion to each segment independently so that
 	// a tab inside one segment does not displace offsets in later segments.
-	let expanded: Vec<(String, bool)> =
-		raw_segs.into_iter().map(|(t, hl)| (tabs_to_spaces(t), hl)).collect();
+	let expanded: Vec<(String, bool)> = raw_segs
+		.into_iter()
+		.map(|(t, hl)| (tabs_to_spaces(t), hl))
+		.collect();
 
 	// Step 3: reassemble into one string, apply scroll trim and width padding,
 	// then re-slice back into styled spans.
@@ -119,7 +121,8 @@ fn build_inline_spans(
 			padded[consumed..].to_owned()
 		} else {
 			let end_in_padded = consumed + visible_in_seg.len();
-			let s = padded[consumed..end_in_padded.min(padded_len)].to_owned();
+			let s = padded[consumed..end_in_padded.min(padded_len)]
+				.to_owned();
 			consumed += visible_in_seg.len();
 			s
 		};
@@ -1079,7 +1082,9 @@ impl Component for DiffComponent {
 				self.focused() && !self.is_stage(),
 			));
 			out.push(CommandInfo::new(
-				strings::commands::diff_file_unstage(&self.key_config),
+				strings::commands::diff_file_unstage(
+					&self.key_config,
+				),
 				self.diff.is_some(),
 				self.focused() && self.is_stage(),
 			));

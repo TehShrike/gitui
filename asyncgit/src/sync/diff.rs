@@ -440,14 +440,18 @@ fn add_inline_highlights(lines: &mut [DiffLine]) {
 
 		// Collect the full run of consecutive Deletes
 		let del_start = i;
-		while i < lines.len() && lines[i].line_type == DiffLineType::Delete {
+		while i < lines.len()
+			&& lines[i].line_type == DiffLineType::Delete
+		{
 			i += 1;
 		}
 		let n_del = i - del_start;
 
 		// Collect the full run of consecutive Adds immediately following
 		let add_start = i;
-		while i < lines.len() && lines[i].line_type == DiffLineType::Add {
+		while i < lines.len()
+			&& lines[i].line_type == DiffLineType::Add
+		{
 			i += 1;
 		}
 		let n_add = i - add_start;
@@ -459,7 +463,11 @@ fn add_inline_highlights(lines: &mut [DiffLine]) {
 
 		if n_del == n_add {
 			for k in 0..n_del {
-				compute_pair_highlights(lines, del_start + k, add_start + k);
+				compute_pair_highlights(
+					lines,
+					del_start + k,
+					add_start + k,
+				);
 			}
 		} else {
 			// For N:M (where N != M), pair lines using greedy similarity matching.
@@ -515,7 +523,11 @@ fn calculate_similarity_ratio(old: &str, new: &str) -> f64 {
 
 /// Compute word-level diff between `lines[del_idx]` (Delete) and
 /// `lines[add_idx]` (Add) and store the resulting byte ranges in each.
-fn compute_pair_highlights(lines: &mut [DiffLine], del_idx: usize, add_idx: usize) {
+fn compute_pair_highlights(
+	lines: &mut [DiffLine],
+	del_idx: usize,
+	add_idx: usize,
+) {
 	let old_content = lines[del_idx].content.clone();
 	let new_content = lines[add_idx].content.clone();
 
@@ -553,8 +565,14 @@ fn compute_pair_highlights(lines: &mut [DiffLine], del_idx: usize, add_idx: usiz
 		}
 	}
 
-	merge_whitespace_separated_highlights(&mut del_highlights, old_content.as_ref());
-	merge_whitespace_separated_highlights(&mut add_highlights, new_content.as_ref());
+	merge_whitespace_separated_highlights(
+		&mut del_highlights,
+		old_content.as_ref(),
+	);
+	merge_whitespace_separated_highlights(
+		&mut add_highlights,
+		new_content.as_ref(),
+	);
 
 	lines[del_idx].inline_highlights = del_highlights;
 	lines[add_idx].inline_highlights = add_highlights;
@@ -605,7 +623,10 @@ fn tokenize_code(s: &str) -> Vec<&str> {
 /// Split an identifier at camelCase, snake_case, and letter/digit boundaries
 /// so that renaming part of a name highlights only that part, e.g.
 /// `FooComponent` -> `FooLegacyComponent` highlights just `Legacy`.
-fn push_identifier_parts<'a>(word: &'a str, tokens: &mut Vec<&'a str>) {
+fn push_identifier_parts<'a>(
+	word: &'a str,
+	tokens: &mut Vec<&'a str>,
+) {
 	let chars: Vec<(usize, char)> = word.char_indices().collect();
 	let mut start = 0;
 	for i in 1..chars.len() {
@@ -617,7 +638,9 @@ fn push_identifier_parts<'a>(word: &'a str, tokens: &mut Vec<&'a str>) {
 			|| cur == '_'
 			|| prev.is_alphabetic() != cur.is_alphabetic()
 			|| (prev.is_lowercase() && cur.is_uppercase())
-			|| (prev.is_uppercase() && cur.is_uppercase() && next.is_some_and(char::is_lowercase));
+			|| (prev.is_uppercase()
+				&& cur.is_uppercase()
+				&& next.is_some_and(char::is_lowercase));
 		if boundary {
 			tokens.push(&word[start..idx]);
 			start = idx;
@@ -626,7 +649,10 @@ fn push_identifier_parts<'a>(word: &'a str, tokens: &mut Vec<&'a str>) {
 	tokens.push(&word[start..]);
 }
 
-fn merge_whitespace_separated_highlights(highlights: &mut Vec<InlineHighlight>, content: &str) {
+fn merge_whitespace_separated_highlights(
+	highlights: &mut Vec<InlineHighlight>,
+	content: &str,
+) {
 	if highlights.len() <= 1 {
 		return;
 	}
@@ -635,7 +661,10 @@ fn merge_whitespace_separated_highlights(highlights: &mut Vec<InlineHighlight>, 
 	for h in highlights.drain(..) {
 		if let Some(last) = merged.last_mut() {
 			let between = &content[last.end..h.start];
-			if last.end == h.start || (!between.is_empty() && between.chars().all(|c| c.is_whitespace())) {
+			if last.end == h.start
+				|| (!between.is_empty()
+					&& between.chars().all(|c| c.is_whitespace()))
+			{
 				last.end = h.end;
 			} else {
 				merged.push(h);
@@ -921,7 +950,10 @@ mod tests {
 
 	#[test]
 	fn test_add_inline_highlights_pairing() {
-		use super::{add_inline_highlights, DiffLine, DiffLineType, DiffLinePosition};
+		use super::{
+			add_inline_highlights, DiffLine, DiffLinePosition,
+			DiffLineType,
+		};
 
 		// Case 1: 1 Delete vs 2 Adds where one Add is very similar.
 		let mut lines = vec![
@@ -989,7 +1021,9 @@ mod tests {
 		];
 
 		add_inline_highlights(&mut lines2);
-		assert!(lines2.iter().all(|l| l.inline_highlights.is_empty()));
+		assert!(lines2
+			.iter()
+			.all(|l| l.inline_highlights.is_empty()));
 
 		// Case 3: Whitespace between two word diff colored tokens should be merged.
 		let mut lines3 = vec![
@@ -1077,7 +1111,10 @@ mod tests {
 
 		assert_eq!(
 			tokenize_code("parseHTTPServer2 snake_case"),
-			vec!["parse", "HTTP", "Server", "2", " ", "snake", "_", "case"]
+			vec![
+				"parse", "HTTP", "Server", "2", " ", "snake", "_",
+				"case"
+			]
 		);
 	}
 }
