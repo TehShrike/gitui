@@ -9,7 +9,7 @@ use crate::{
 		},
 		cred::BasicAuthCredential,
 		get_branch_upstream_merge,
-		remotes::{proxy_auto, Callbacks},
+		remotes::{force_push_guard, proxy_auto, Callbacks},
 		repository::repo,
 		CommitId, RepoPath,
 	},
@@ -144,7 +144,8 @@ pub fn push_raw(
 	scope_time!("push");
 
 	let repo = repo(repo_path)?;
-	let mut remote = repo.find_remote(remote)?;
+	let remote_name = remote;
+	let mut remote = repo.find_remote(remote_name)?;
 
 	let push_default_strategy =
 		push_default_strategy_config_repo(&repo)?;
@@ -167,8 +168,8 @@ pub fn push_raw(
 		PushType::Tag => "tags",
 	};
 
-	let mut push_ref =
-		format!("{branch_modifier}refs/{git_ref_type}/{branch}");
+	let mut remote_ref = format!("refs/{git_ref_type}/{branch}");
+	let mut push_ref = format!("{branch_modifier}{remote_ref}");
 
 	if !delete
 		&& ref_type == PushType::Branch
@@ -179,11 +180,24 @@ pub fn push_raw(
 			get_branch_upstream_merge(repo_path, branch)
 		{
 			let _ = write!(push_ref, ":{branch_upstream_merge}");
+			remote_ref = branch_upstream_merge;
 		}
 	}
 
 	log::debug!("push to: {push_ref}");
-	remote.push(&[push_ref], Some(&mut options))?;
+	if force && !delete && ref_type == PushType::Branch {
+		let mut connection = force_push_guard::connect_checked(
+			&repo,
+			&mut remote,
+			remote_name,
+			&remote_ref,
+			callbacks.callbacks(),
+			proxy_auto(),
+		)?;
+		connection.remote().push(&[push_ref], Some(&mut options))?;
+	} else {
+		remote.push(&[push_ref], Some(&mut options))?;
+	}
 
 	if let Some((reference, msg)) =
 		callbacks.get_stats()?.push_rejected_msg
@@ -205,6 +219,7 @@ mod tests {
 	use super::*;
 	use crate::sync::{
 		self,
+		remotes::fetch_all,
 		tests::{
 			get_commit_ids, repo_clone, repo_init, repo_init_bare,
 			write_commit_file,
@@ -283,7 +298,28 @@ mod tests {
 		)
 		.is_err());
 
-		// Attempt force push,
+		// Attempt force push without ever having fetched,
+		// should be refused since the remote branch is unknown locally
+		let err = push_branch(
+			&tmp_other_repo_dir.path().to_str().unwrap().into(),
+			"origin",
+			"master",
+			true,
+			false,
+			None,
+			None,
+		)
+		.unwrap_err();
+		assert!(err.to_string().contains("never been fetched"));
+
+		fetch_all(
+			&tmp_other_repo_dir.path().to_str().unwrap().into(),
+			&None,
+			&None,
+		)
+		.unwrap();
+
+		// Attempt force push after fetching,
 		// should work as it forces the push through
 		assert!(push_branch(
 			&tmp_other_repo_dir.path().to_str().unwrap().into(),
@@ -295,6 +331,97 @@ mod tests {
 			None,
 		)
 		.is_ok());
+	}
+
+	#[test]
+	fn test_force_push_refused_when_remote_moved() {
+		let (tmp_repo_dir, repo) = repo_init().unwrap();
+		let (tmp_other_repo_dir, other_repo) = repo_init().unwrap();
+		let (tmp_upstream_dir, upstream) = repo_init_bare().unwrap();
+
+		let repo_path: RepoPath =
+			tmp_repo_dir.path().to_str().unwrap().into();
+		let other_path: RepoPath =
+			tmp_other_repo_dir.path().to_str().unwrap().into();
+
+		repo.remote(
+			"origin",
+			tmp_upstream_dir.path().to_str().unwrap(),
+		)
+		.unwrap();
+		other_repo
+			.remote(
+				"origin",
+				tmp_upstream_dir.path().to_str().unwrap(),
+			)
+			.unwrap();
+
+		write_commit_file(&repo, "a.txt", "a", "commit a");
+		push_branch(
+			&repo_path, "origin", "master", false, false, None, None,
+		)
+		.unwrap();
+
+		// the other clone learns about commit a
+		write_commit_file(&other_repo, "c.txt", "c", "commit c");
+		fetch_all(&other_path, &None, &None).unwrap();
+
+		// meanwhile the remote moves on to commit b
+		let commit_b =
+			write_commit_file(&repo, "b.txt", "b", "commit b");
+		push_branch(
+			&repo_path, "origin", "master", false, false, None, None,
+		)
+		.unwrap();
+
+		// a force push from the stale clone must not wipe out commit b
+		let err = push_branch(
+			&other_path,
+			"origin",
+			"master",
+			true,
+			false,
+			None,
+			None,
+		)
+		.unwrap_err();
+		assert!(err.to_string().contains("moved since"));
+		assert!(get_commit_ids(&upstream, 1).contains(&commit_b));
+
+		// once the clone has seen commit b the force push goes through
+		fetch_all(&other_path, &None, &None).unwrap();
+		push_branch(
+			&other_path,
+			"origin",
+			"master",
+			true,
+			false,
+			None,
+			None,
+		)
+		.unwrap();
+		assert!(!get_commit_ids(&upstream, 1).contains(&commit_b));
+	}
+
+	#[test]
+	fn test_force_push_of_new_branch_is_allowed() {
+		let (tmp_repo_dir, repo) = repo_init().unwrap();
+		let (tmp_upstream_dir, _) = repo_init_bare().unwrap();
+		let repo_path: RepoPath =
+			tmp_repo_dir.path().to_str().unwrap().into();
+
+		repo.remote(
+			"origin",
+			tmp_upstream_dir.path().to_str().unwrap(),
+		)
+		.unwrap();
+		write_commit_file(&repo, "a.txt", "a", "commit a");
+
+		// nothing on the remote yet, so there is nothing to protect
+		push_branch(
+			&repo_path, "origin", "master", true, false, None, None,
+		)
+		.unwrap();
 	}
 
 	#[test]
@@ -411,8 +538,14 @@ mod tests {
 		let commits = get_commit_ids(&upstream, 1);
 		assert!(!commits.contains(&repo_2_commit));
 
-		// Attempt force push,
+		// Attempt force push after fetching,
 		// should work as it forces the push through
+		fetch_all(
+			&tmp_other_repo_dir.path().to_str().unwrap().into(),
+			&None,
+			&None,
+		)
+		.unwrap();
 
 		push_branch(
 			&tmp_other_repo_dir.path().to_str().unwrap().into(),
