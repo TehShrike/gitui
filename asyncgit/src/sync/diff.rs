@@ -503,6 +503,7 @@ fn add_inline_highlights(lines: &mut [DiffLine]) {
 	}
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn calculate_similarity_ratio(old: &str, new: &str) -> f64 {
 	let old_tokens = tokenize_code(old);
 	let new_tokens = tokenize_code(new);
@@ -582,9 +583,8 @@ fn tokenize_code(s: &str) -> Vec<&str> {
 	let mut tokens = Vec::new();
 	let mut chars = s.char_indices().peekable();
 
-	while let Some(&(start_idx, c)) = chars.peek() {
+	while let Some((start_idx, c)) = chars.next() {
 		if c.is_alphanumeric() || c == '_' {
-			chars.next();
 			let mut end = s.len();
 			while let Some(&(end_idx, next_c)) = chars.peek() {
 				if next_c.is_alphanumeric() || next_c == '_' {
@@ -596,7 +596,6 @@ fn tokenize_code(s: &str) -> Vec<&str> {
 			}
 			push_identifier_parts(&s[start_idx..end], &mut tokens);
 		} else if c.is_whitespace() {
-			chars.next();
 			while let Some(&(end_idx, next_c)) = chars.peek() {
 				if next_c.is_whitespace() {
 					chars.next();
@@ -608,19 +607,16 @@ fn tokenize_code(s: &str) -> Vec<&str> {
 			if chars.peek().is_none() {
 				tokens.push(&s[start_idx..]);
 			}
+		} else if let Some(&(end_idx, _)) = chars.peek() {
+			tokens.push(&s[start_idx..end_idx]);
 		} else {
-			chars.next();
-			if let Some(&(end_idx, _)) = chars.peek() {
-				tokens.push(&s[start_idx..end_idx]);
-			} else {
-				tokens.push(&s[start_idx..]);
-			}
+			tokens.push(&s[start_idx..]);
 		}
 	}
 	tokens
 }
 
-/// Split an identifier at camelCase, snake_case, and letter/digit boundaries
+/// Split an identifier at `camelCase`, `snake_case`, and letter/digit boundaries
 /// so that renaming part of a name highlights only that part, e.g.
 /// `FooComponent` -> `FooLegacyComponent` highlights just `Legacy`.
 fn push_identifier_parts<'a>(
@@ -663,7 +659,7 @@ fn merge_whitespace_separated_highlights(
 			let between = &content[last.end..h.start];
 			if last.end == h.start
 				|| (!between.is_empty()
-					&& between.chars().all(|c| c.is_whitespace()))
+					&& between.chars().all(char::is_whitespace))
 			{
 				last.end = h.end;
 			} else {

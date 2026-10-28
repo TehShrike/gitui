@@ -10,7 +10,7 @@ use struct_patch::Patch;
 pub type SharedTheme = Rc<Theme>;
 
 /// Foreground + background colour pair for word-level diff highlighting.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WordHighlightStyle {
 	pub fg: Color,
 	pub bg: Color,

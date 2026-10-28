@@ -42,7 +42,7 @@ enum Focus {
 
 /// focus can toggle between workdir and stage
 impl Focus {
-	const fn toggled_focus(&self) -> Self {
+	const fn toggled_focus(self) -> Self {
 		match self {
 			Self::WorkDir => Self::Stage,
 			Self::Stage => Self::WorkDir,
@@ -91,7 +91,7 @@ const DIFF_FOCUS_WIDE_COLUMNS: u16 = 140;
 
 /// Horizontal split between the file lists and the diff while the diff has
 /// focus, for a status tab `width` columns wide.
-fn diff_focus_split(width: u16) -> [Constraint; 2] {
+const fn diff_focus_split(width: u16) -> [Constraint; 2] {
 	if width >= DIFF_FOCUS_WIDE_COLUMNS {
 		[Constraint::Percentage(30), Constraint::Percentage(70)]
 	} else {
