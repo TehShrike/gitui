@@ -328,6 +328,70 @@ mod tests {
 	}
 
 	#[test]
+	fn commit_opens_from_unstaged_list_and_diff() {
+		let (temp_dir, repo) = repo_init_suffix(Some("-commit"));
+		{
+			std::fs::write(temp_dir.path().join("a.txt"), "1\n")
+				.unwrap();
+			let mut index = repo.index().unwrap();
+			index.add_path(std::path::Path::new("a.txt")).unwrap();
+			index.write().unwrap();
+			std::fs::write(temp_dir.path().join("b.txt"), "1\n")
+				.unwrap();
+		}
+
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			repo_path: temp_dir.path().to_str().unwrap().into(),
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+		let key_config = KeyConfig::default();
+		let mut gitui = Gitui::new(
+			cliargs,
+			Theme::init(&PathBuf::new()),
+			&key_config,
+			Updater::Ticker,
+		)
+		.unwrap();
+		let mut terminal =
+			Terminal::new(TestBackend::new(160, 30)).unwrap();
+		let mut screen = |gitui: &mut Gitui| {
+			gitui.draw(&mut terminal).unwrap();
+			terminal.backend().to_string()
+		};
+
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Status,
+		));
+		assert!(screen(&mut gitui).contains("Stage All [a]"));
+
+		gitui.input_event(KeyCode::Char('c'), KeyModifiers::empty());
+		assert!(screen(&mut gitui).contains("┌Commit"));
+
+		gitui.input_event(KeyCode::Esc, KeyModifiers::empty());
+		assert!(!screen(&mut gitui).contains("┌Commit"));
+
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Diff,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Diff,
+		));
+		gitui.input_event(KeyCode::Char('c'), KeyModifiers::empty());
+		assert!(screen(&mut gitui).contains("┌Commit"));
+	}
+
+	#[test]
 	fn help_and_options_open_over_inspected_commit() {
 		let (temp_dir, _repo) = repo_init_suffix(Some("-inspect"));
 		let cliargs = CliArgs {
