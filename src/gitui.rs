@@ -328,6 +328,59 @@ mod tests {
 	}
 
 	#[test]
+	fn help_and_options_open_over_inspected_commit() {
+		let (temp_dir, _repo) = repo_init_suffix(Some("-inspect"));
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			repo_path: temp_dir.path().to_str().unwrap().into(),
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+		let key_config = KeyConfig::default();
+		let mut gitui = Gitui::new(
+			cliargs,
+			Theme::init(&PathBuf::new()),
+			&key_config,
+			Updater::Ticker,
+		)
+		.unwrap();
+		let mut terminal =
+			Terminal::new(TestBackend::new(160, 30)).unwrap();
+		let mut screen = |gitui: &mut Gitui| {
+			gitui.draw(&mut terminal).unwrap();
+			terminal.backend().to_string()
+		};
+
+		gitui.input_event(KeyCode::Char('2'), KeyModifiers::empty());
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Log,
+		);
+		gitui.update();
+		gitui.input_event(KeyCode::Enter, KeyModifiers::empty());
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		assert!(screen(&mut gitui).contains("┌Diff:"));
+
+		gitui.input_event(KeyCode::Char('o'), KeyModifiers::empty());
+		assert!(screen(&mut gitui).contains("┌Options"));
+
+		// closing options leaves the commit open
+		gitui.input_event(KeyCode::Esc, KeyModifiers::empty());
+		let s = screen(&mut gitui);
+		assert!(!s.contains("┌Options"));
+		assert!(s.contains("┌Diff:"));
+
+		gitui.input_event(KeyCode::Char('h'), KeyModifiers::empty());
+		assert!(screen(&mut gitui).contains("Help: all commands"));
+
+		gitui.input_event(KeyCode::Esc, KeyModifiers::empty());
+		let s = screen(&mut gitui);
+		assert!(!s.contains("Help: all commands"));
+		assert!(s.contains("┌Diff:"));
+	}
+
+	#[test]
 	fn gitui_starts() {
 		apply_common_filters!();
 

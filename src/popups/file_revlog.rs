@@ -8,7 +8,7 @@ use crate::{
 	keys::{key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{InternalEvent, NeedsUpdate, Queue, StackablePopupOpen},
-	strings,
+	strings, try_or_popup,
 	ui::{draw_scrollbar, style::SharedTheme, Orientation},
 };
 use anyhow::Result;
@@ -28,7 +28,10 @@ use ratatui::{
 	Frame,
 };
 
-use super::{BlameFileOpen, InspectCommitOpen};
+use super::{
+	copy_commit_hashes, opens_over_popup, BlameFileOpen,
+	InspectCommitOpen,
+};
 
 const SLICE_SIZE: usize = 1200;
 
@@ -501,6 +504,10 @@ impl Component for FileRevlogPopup {
 			}
 
 			if let Event::Key(key) = event {
+				if opens_over_popup(&self.key_config, key) {
+					return Ok(EventState::NotConsumed);
+				}
+
 				if key_match(key, self.key_config.keys.exit_popup) {
 					if self.diff.focused() {
 						self.diff.focus(false);
@@ -521,6 +528,20 @@ impl Component for FileRevlogPopup {
 								InspectCommitOpen::new(commit_id),
 							),
 						));
+					}
+				} else if key_match(
+					key,
+					self.key_config.keys.copy_commit_hash,
+				) {
+					if let Some(commit_id) = self.selected_commit() {
+						try_or_popup!(
+							self,
+							strings::POPUP_FAIL_COPY,
+							copy_commit_hashes(
+								&self.queue,
+								&[commit_id]
+							)
+						);
 					}
 				} else if key_match(key, self.key_config.keys.blame) {
 					if let Some(open_request) =
@@ -610,6 +631,11 @@ impl Component for FileRevlogPopup {
 				)
 				.order(1),
 			);
+			out.push(CommandInfo::new(
+				strings::commands::copy_commit_hash(&self.key_config),
+				self.selected_commit().is_some(),
+				true,
+			));
 
 			out.push(CommandInfo::new(
 				strings::commands::diff_focus_right(&self.key_config),

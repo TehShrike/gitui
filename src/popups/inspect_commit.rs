@@ -9,7 +9,7 @@ use crate::{
 	keys::{key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{InternalEvent, Queue, StackablePopupOpen},
-	strings,
+	strings, try_or_popup,
 };
 use anyhow::Result;
 use asyncgit::{
@@ -23,7 +23,7 @@ use ratatui::{
 	Frame,
 };
 
-use super::FileTreeOpen;
+use super::{copy_commit_hashes, opens_over_popup, FileTreeOpen};
 
 #[derive(Clone, Debug)]
 pub struct InspectCommitOpen {
@@ -136,6 +136,12 @@ impl Component for InspectCommitPopup {
 				true,
 				true,
 			));
+
+			out.push(CommandInfo::new(
+				strings::commands::copy_commit_hash(&self.key_config),
+				true,
+				true,
+			));
 		}
 
 		visibility_blocking(self)
@@ -154,12 +160,30 @@ impl Component for InspectCommitPopup {
 			}
 
 			if let Event::Key(e) = ev {
+				if opens_over_popup(&self.key_config, e) {
+					return Ok(EventState::NotConsumed);
+				}
+
 				if key_match(e, self.key_config.keys.exit_popup) {
 					if self.diff.focused() {
 						self.details.focus(true);
 						self.diff.focus(false);
 					} else {
 						self.hide_stacked(false);
+					}
+				} else if key_match(
+					e,
+					self.key_config.keys.copy_commit_hash,
+				) {
+					if let Some(open) = &self.open_request {
+						try_or_popup!(
+							self,
+							strings::POPUP_FAIL_COPY,
+							copy_commit_hashes(
+								&self.queue,
+								&[open.commit_id]
+							)
+						);
 					}
 				} else if key_match(
 					e,

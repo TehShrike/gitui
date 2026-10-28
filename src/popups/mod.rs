@@ -62,7 +62,16 @@ pub use tag_commit::TagCommitPopup;
 pub use taglist::TagListPopup;
 pub use update_remote_url::UpdateRemoteUrlPopup;
 
-use crate::ui::style::Theme;
+use crate::{
+	keys::{key_match, SharedKeyConfig},
+	queue::{InternalEvent, Queue},
+	strings,
+	ui::style::Theme,
+};
+use anyhow::Result;
+use asyncgit::sync::CommitId;
+use crossterm::event::KeyEvent;
+use itertools::Itertools;
 use ratatui::{
 	layout::Alignment,
 	text::{Span, Text},
@@ -94,4 +103,28 @@ where
 	} else {
 		paragraph
 	}
+}
+
+/// popups that take every key still leave these to the app,
+/// so that help and options can open over them
+fn opens_over_popup(
+	key_config: &SharedKeyConfig,
+	e: &KeyEvent,
+) -> bool {
+	key_match(e, key_config.keys.open_help)
+		|| key_match(e, key_config.keys.open_options)
+}
+
+fn copy_commit_hashes(queue: &Queue, ids: &[CommitId]) -> Result<()> {
+	if ids.is_empty() {
+		return Ok(());
+	}
+
+	let yank = ids.iter().map(ToString::to_string).join(" ");
+	crate::clipboard::copy_string(&yank)?;
+	queue.push(InternalEvent::ShowInfoMsg(strings::copy_success(
+		&yank,
+	)));
+
+	Ok(())
 }

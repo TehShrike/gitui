@@ -8,9 +8,11 @@ use crate::{
 	app::Environment,
 	keys::{key_match, SharedKeyConfig},
 	options::SharedOptions,
-	popups::InspectCommitOpen,
+	popups::{
+		copy_commit_hashes, opens_over_popup, InspectCommitOpen,
+	},
 	queue::{InternalEvent, Queue, StackablePopupOpen},
-	strings,
+	strings, try_or_popup,
 };
 use anyhow::Result;
 use asyncgit::{
@@ -100,6 +102,12 @@ impl Component for CompareCommitsPopup {
 				true,
 				self.diff.focused() || force_all,
 			));
+
+			out.push(CommandInfo::new(
+				strings::commands::copy_commit_hash(&self.key_config),
+				true,
+				true,
+			));
 		}
 
 		visibility_blocking(self)
@@ -117,6 +125,10 @@ impl Component for CompareCommitsPopup {
 			}
 
 			if let Event::Key(e) = ev {
+				if opens_over_popup(&self.key_config, e) {
+					return Ok(EventState::NotConsumed);
+				}
+
 				if key_match(e, self.key_config.keys.exit_popup) {
 					if self.diff.focused() {
 						self.details.focus(true);
@@ -134,6 +146,20 @@ impl Component for CompareCommitsPopup {
 				} else if key_match(e, self.key_config.keys.move_left)
 				{
 					self.hide_stacked(false);
+				} else if key_match(
+					e,
+					self.key_config.keys.copy_commit_hash,
+				) {
+					if let Some(ids) = self.get_ids() {
+						try_or_popup!(
+							self,
+							strings::POPUP_FAIL_COPY,
+							copy_commit_hashes(
+								&self.queue,
+								&[ids.old, ids.new]
+							)
+						);
+					}
 				}
 
 				return Ok(EventState::Consumed);

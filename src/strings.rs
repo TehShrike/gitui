@@ -683,6 +683,18 @@ pub mod commands {
 			CMD_GROUP_LOG,
 		)
 	}
+	pub fn copy_commit_hash(
+		key_config: &SharedKeyConfig,
+	) -> CommandText {
+		CommandText::new(
+			format!(
+				"Copy Hash [{}]",
+				key_config.get_hint(key_config.keys.copy_commit_hash),
+			),
+			"copy commit hash to clipboard",
+			CMD_GROUP_GENERAL,
+		)
+	}
 	pub fn copy_path(key_config: &SharedKeyConfig) -> CommandText {
 		CommandText::new(
 			format!(

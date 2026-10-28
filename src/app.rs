@@ -317,7 +317,7 @@ impl App {
 
 			let mut flags = NeedsUpdate::empty();
 
-			if event_pump(&ev, self.components_mut().as_mut_slice())?
+			if event_pump(&ev, self.event_targets().as_mut_slice())?
 				.is_consumed()
 			{
 				flags.insert(NeedsUpdate::COMMANDS);
@@ -543,7 +543,6 @@ impl App {
 		[
 			commit_popup,
 			stashmsg_popup,
-			help_popup,
 			inspect_commit_popup,
 			compare_commits_popup,
 			blame_file_popup,
@@ -569,6 +568,7 @@ impl App {
 			pull_popup,
 			fetch_popup,
 			options_popup,
+			help_popup,
 			confirm_popup,
 			msg_popup,
 			goto_line_popup
@@ -660,6 +660,24 @@ impl App {
 			AppTabs::Stashlist => self.set_tab(4)?,
 		}
 		Ok(())
+	}
+
+	/// help and options take keys ahead of the popups they open over
+	fn event_targets(&mut self) -> Vec<&mut dyn Component> {
+		if self.help_popup.is_visible() {
+			vec![&mut self.help_popup]
+		} else if self.options_popup.is_visible() {
+			vec![&mut self.options_popup]
+		} else {
+			self.components_mut()
+		}
+	}
+
+	/// popups that take every key except help and options
+	fn diff_popup_visible(&self) -> bool {
+		self.inspect_commit_popup.is_visible()
+			|| self.compare_commits_popup.is_visible()
+			|| self.file_revlog_popup.is_visible()
 	}
 
 	fn update_commands(&mut self) {
@@ -871,7 +889,7 @@ impl App {
 					AppOption::DiffContextLines
 					| AppOption::DiffIgnoreWhitespaces
 					| AppOption::DiffInterhunkLines => {
-						self.status_tab.update_diff()?;
+						flags.insert(NeedsUpdate::DIFF);
 					}
 				}
 
@@ -1110,7 +1128,30 @@ impl App {
 	fn commands(&self, force_all: bool) -> Vec<CommandInfo> {
 		let mut res = Vec::new();
 
-		command_pump(&mut res, force_all, &self.components());
+		let help_or_options_visible = self.help_popup.is_visible()
+			|| self.options_popup.is_visible();
+		if help_or_options_visible && !force_all {
+			command_pump(
+				&mut res,
+				force_all,
+				&[&self.help_popup, &self.options_popup],
+			);
+		} else {
+			command_pump(&mut res, force_all, &self.components());
+		}
+
+		let over_diff_popup =
+			self.diff_popup_visible() && !help_or_options_visible;
+		if over_diff_popup {
+			res.push(
+				CommandInfo::new(
+					strings::commands::help_open(&self.key_config),
+					true,
+					true,
+				)
+				.order(99),
+			);
+		}
 
 		res.push(CommandInfo::new(
 			strings::commands::find_file(&self.key_config),
@@ -1143,7 +1184,7 @@ impl App {
 			CommandInfo::new(
 				strings::commands::options_popup(&self.key_config),
 				true,
-				!self.any_popup_visible(),
+				!self.any_popup_visible() || over_diff_popup,
 			)
 			.order(order::NAV),
 		);
