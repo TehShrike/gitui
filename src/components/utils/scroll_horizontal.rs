@@ -5,6 +5,9 @@ use crate::{
 use ratatui::{layout::Rect, Frame};
 use std::cell::Cell;
 
+/// Columns moved per left/right key press.
+pub const HORIZONTAL_SCROLL_STEP: usize = 3;
+
 pub struct HorizontalScroll {
 	right: Cell<usize>,
 	max_right: Cell<usize>,
@@ -34,8 +37,12 @@ impl HorizontalScroll {
 		let max = self.max_right.get();
 
 		let new_scroll_right = match move_type {
-			HorizontalScrollType::Left => old.saturating_sub(1),
-			HorizontalScrollType::Right => old.saturating_add(1),
+			HorizontalScrollType::Left => {
+				old.saturating_sub(HORIZONTAL_SCROLL_STEP)
+			}
+			HorizontalScrollType::Right => {
+				old.saturating_add(HORIZONTAL_SCROLL_STEP)
+			}
 		};
 
 		let new_scroll_right = new_scroll_right.clamp(0, max);
@@ -129,5 +136,30 @@ mod tests {
 	#[test]
 	fn test_scroll_zero_width() {
 		assert_eq!(calc_scroll_right(4, 0, 4, 3), 0);
+	}
+
+	#[test]
+	fn test_move_right_steps_and_clamps() {
+		let scroll = HorizontalScroll::new();
+		// 20 columns of content in a 10 column view: max offset 10
+		scroll.update_no_selection(20, 10);
+
+		assert!(scroll.move_right(HorizontalScrollType::Right));
+		assert_eq!(scroll.get_right(), HORIZONTAL_SCROLL_STEP);
+
+		assert!(scroll.move_right(HorizontalScrollType::Right));
+		assert!(scroll.move_right(HorizontalScrollType::Right));
+		assert!(scroll.move_right(HorizontalScrollType::Right));
+		assert_eq!(scroll.get_right(), 10);
+		assert!(!scroll.move_right(HorizontalScrollType::Right));
+
+		assert!(scroll.move_right(HorizontalScrollType::Left));
+		assert_eq!(scroll.get_right(), 10 - HORIZONTAL_SCROLL_STEP);
+
+		scroll.move_right(HorizontalScrollType::Left);
+		scroll.move_right(HorizontalScrollType::Left);
+		scroll.move_right(HorizontalScrollType::Left);
+		assert_eq!(scroll.get_right(), 0);
+		assert!(!scroll.move_right(HorizontalScrollType::Left));
 	}
 }
