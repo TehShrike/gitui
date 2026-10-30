@@ -1,4 +1,5 @@
 use super::{
+	utils::key_hold::KeyHold,
 	utils::scroll_horizontal::HorizontalScroll,
 	utils::scroll_vertical::VerticalScroll, CommandBlocking,
 	Direction, DrawableComponent, HorizontalScrollType, ScrollType,
@@ -234,6 +235,8 @@ pub struct DiffComponent {
 	stage_undo: SharedStageUndo,
 	// hunk to select once the diff of this file arrives: (path, is_stage, index line)
 	pending_hunk: Option<(String, bool, u32)>,
+	// speeds up line-by-line movement while up/down is held
+	key_hold: KeyHold<ScrollType>,
 }
 
 impl DiffComponent {
@@ -258,6 +261,7 @@ impl DiffComponent {
 			options: env.options.clone(),
 			stage_undo: env.stage_undo.clone(),
 			pending_hunk: None,
+			key_hold: KeyHold::new(),
 		}
 	}
 	///
@@ -392,15 +396,24 @@ impl DiffComponent {
 	}
 
 	fn move_selection(&mut self, move_type: ScrollType) {
+		self.move_selection_by(move_type, 1);
+	}
+
+	/// Like `move_selection`, but `Up` and `Down` move `step` lines.
+	fn move_selection_by(
+		&mut self,
+		move_type: ScrollType,
+		step: usize,
+	) {
 		if let Some(diff) = &self.diff {
 			let max = diff.lines.saturating_sub(1);
 
 			let new_start = match move_type {
 				ScrollType::Down => {
-					self.selection.get_bottom().saturating_add(1)
+					self.selection.get_bottom().saturating_add(step)
 				}
 				ScrollType::Up => {
-					self.selection.get_top().saturating_sub(1)
+					self.selection.get_top().saturating_sub(step)
 				}
 				ScrollType::Home => 0,
 				ScrollType::End => max,
@@ -1103,9 +1116,16 @@ impl Component for DiffComponent {
 	fn event(&mut self, ev: &Event) -> Result<EventState> {
 		if self.focused() {
 			if let Event::Key(e) = ev {
+				let is_move_key =
+					key_match(e, self.key_config.keys.move_down)
+						|| key_match(e, self.key_config.keys.move_up);
+				if !is_move_key {
+					self.key_hold.reset();
+				}
 				return if key_match(e, self.key_config.keys.move_down)
 				{
-					self.move_selection(ScrollType::Down);
+					let step = self.key_hold.press(ScrollType::Down);
+					self.move_selection_by(ScrollType::Down, step);
 					Ok(EventState::Consumed)
 				} else if key_match(
 					e,
@@ -1124,7 +1144,8 @@ impl Component for DiffComponent {
 					self.move_selection(ScrollType::Home);
 					Ok(EventState::Consumed)
 				} else if key_match(e, self.key_config.keys.move_up) {
-					self.move_selection(ScrollType::Up);
+					let step = self.key_hold.press(ScrollType::Up);
+					self.move_selection_by(ScrollType::Up, step);
 					Ok(EventState::Consumed)
 				} else if key_match(e, self.key_config.keys.page_up) {
 					self.move_selection(ScrollType::PageUp);
