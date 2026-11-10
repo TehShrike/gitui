@@ -639,6 +639,22 @@ impl Status {
 		Ok(())
 	}
 
+	/// After a commit the staged list is empty, so focus goes back to the
+	/// unstaged list unless it is already there (or on its diff).
+	pub fn commit_done(&mut self) -> Result<()> {
+		if self.is_visible() {
+			let on_workdir = matches!(
+				(self.focus, self.diff_target),
+				(Focus::WorkDir, _)
+					| (Focus::Diff, DiffTarget::WorkingDir)
+			);
+			if !on_workdir {
+				self.switch_focus(Focus::WorkDir)?;
+			}
+		}
+		Ok(())
+	}
+
 	fn push(&self, force: bool) {
 		if self.can_push() {
 			if let Some(branch) = self.git_branch_name.last() {

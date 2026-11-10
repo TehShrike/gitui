@@ -871,6 +871,9 @@ impl App {
 			InternalEvent::StatusLastFileMoved => {
 				self.status_tab.last_file_moved()?;
 			}
+			InternalEvent::CommitDone => {
+				self.status_tab.commit_done()?;
+			}
 			InternalEvent::OpenFuzzyFinder(contents, target) => {
 				self.fuzzy_find_popup.open(contents, target)?;
 				flags

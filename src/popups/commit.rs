@@ -220,7 +220,7 @@ impl CommitPopup {
 
 			self.hide();
 			self.queue.push(InternalEvent::Update(NeedsUpdate::ALL));
-			self.queue.push(InternalEvent::StatusLastFileMoved);
+			self.queue.push(InternalEvent::CommitDone);
 			self.input.clear();
 		}
 

@@ -96,6 +96,8 @@ pub enum InternalEvent {
 	Update(NeedsUpdate),
 	///
 	StatusLastFileMoved,
+	/// a commit was made, so the status tab should return to the unstaged list
+	CommitDone,
 	/// open commit msg input
 	OpenCommit,
 	///
