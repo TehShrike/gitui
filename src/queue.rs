@@ -122,8 +122,9 @@ pub enum InternalEvent {
 	RenameBranch(String, String),
 	///
 	SelectBranch,
-	///
-	OpenExternalEditor(Option<String>),
+	/// open a working tree file in the external editor, at the given
+	/// line if there is one, or with `None` the commit message
+	OpenExternalEditor(Option<(String, Option<u32>)>),
 	///
 	Push(String, PushType, bool, bool),
 	///

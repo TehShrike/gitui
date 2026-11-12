@@ -136,6 +136,11 @@ impl SyntaxTextComponent {
 		}
 	}
 
+	/// number of the file's line that is shown in the top row
+	pub const fn top_line(&self) -> u32 {
+		self.paragraph_state.get().top_line().saturating_add(1)
+	}
+
 	fn scroll(&self, nav: MoveSelection) -> bool {
 		let state = self.paragraph_state.get();
 

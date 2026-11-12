@@ -144,6 +144,30 @@ fn build_inline_spans(
 	spans
 }
 
+/// Where line `index_line` of the index version of a file is in the
+/// working tree version, given the unstaged diff between the two. A line
+/// that the working tree no longer has maps to where it was.
+fn index_line_in_workdir(
+	unstaged: &FileDiff,
+	index_line: u32,
+) -> u32 {
+	// lines the working tree has gained on the index above the line
+	let mut shift = 0_i64;
+
+	for line in
+		unstaged.hunks.iter().flat_map(|hunk| hunk.lines.iter())
+	{
+		match (line.position.old_lineno, line.position.new_lineno) {
+			(Some(old), _) if old >= index_line => break,
+			(Some(_), None) => shift -= 1,
+			(None, Some(_)) => shift += 1,
+			_ => {}
+		}
+	}
+
+	u32::try_from(i64::from(index_line) + shift).unwrap_or(index_line)
+}
+
 #[derive(Default)]
 struct Current {
 	path: String,
@@ -275,6 +299,43 @@ impl DiffComponent {
 	///
 	const fn can_edit_file(&self) -> bool {
 		!self.is_immutable && !self.current.path.is_empty()
+	}
+	/// Line of the working tree file that the cursor is on. A deleted
+	/// line or a hunk header has no line of its own there, so the nearest
+	/// line of the hunk that does stands in, preferring one below.
+	fn cursor_file_line(&self) -> Option<u32> {
+		let diff = self.diff.as_ref()?;
+		let cursor = self.selection.get_end();
+		let hunk_index = Self::find_selected_hunk(diff, cursor)?;
+		let lines_above: usize = diff.hunks[..hunk_index]
+			.iter()
+			.map(|hunk| hunk.lines.len())
+			.sum();
+		let (above, from_cursor) = diff.hunks[hunk_index]
+			.lines
+			.split_at(cursor - lines_above);
+		let line = from_cursor
+			.iter()
+			.chain(above.iter().rev())
+			.find_map(|line| line.position.new_lineno)?;
+
+		if !self.current.is_stage {
+			return Some(line);
+		}
+
+		// the staged diff numbers lines as the index has them, and
+		// unstaged changes further up the file move them
+		Some(
+			sync::diff::get_diff(
+				&self.repo.borrow(),
+				&self.current.path,
+				false,
+				None,
+			)
+			.map_or(line, |unstaged| {
+				index_line_in_workdir(&unstaged, line)
+			}),
+		)
 	}
 	///
 	pub fn clear(&mut self, pending: bool) {
@@ -1182,9 +1243,10 @@ impl Component for DiffComponent {
 					&& self.can_edit_file()
 				{
 					self.queue.push(
-						InternalEvent::OpenExternalEditor(Some(
+						InternalEvent::OpenExternalEditor(Some((
 							self.current.path.clone(),
-						)),
+							self.cursor_file_line(),
+						))),
 					);
 					Ok(EventState::Consumed)
 				} else if key_match(
@@ -1407,8 +1469,89 @@ mod tests {
 		let event = env.queue.pop();
 		assert!(matches!(
 			event,
-			Some(InternalEvent::OpenExternalEditor(Some(path)))
+			Some(InternalEvent::OpenExternalEditor(Some((path, None))))
 				if path == "src/main.rs"
 		));
+	}
+
+	fn line(old: Option<u32>, new: Option<u32>) -> DiffLine {
+		DiffLine {
+			content: "".into(),
+			line_type: DiffLineType::None,
+			position: DiffLinePosition {
+				old_lineno: old,
+				new_lineno: new,
+			},
+			inline_highlights: Vec::new(),
+		}
+	}
+
+	fn file_diff(lines: Vec<DiffLine>) -> FileDiff {
+		FileDiff {
+			lines: lines.len(),
+			hunks: vec![asyncgit::sync::diff::Hunk {
+				header_hash: 0,
+				lines,
+			}],
+			..Default::default()
+		}
+	}
+
+	#[test]
+	fn diff_component_opens_editor_at_the_line_under_the_cursor() {
+		let env = Environment::test_env();
+		let mut diff = DiffComponent::new(&env, false);
+		diff.focus(true);
+		diff.update(
+			"src/main.rs".into(),
+			false,
+			file_diff(vec![
+				line(None, None), // hunk header
+				line(Some(17), Some(17)),
+				line(Some(18), None),
+				line(None, Some(18)),
+				line(Some(19), Some(19)),
+			]),
+		);
+
+		let mut opened_line = |cursor: usize| {
+			diff.update_selection(cursor);
+			diff.event(&Event::Key(KeyEvent::new(
+				KeyCode::Char('e'),
+				KeyModifiers::empty(),
+			)))
+			.unwrap();
+			match env.queue.pop() {
+				Some(InternalEvent::OpenExternalEditor(Some((
+					_,
+					line,
+				)))) => line,
+				_ => panic!("editor was not opened"),
+			}
+		};
+
+		assert_eq!(opened_line(1), Some(17));
+		assert_eq!(opened_line(3), Some(18));
+		// the header and the deleted line take the line below them
+		assert_eq!(opened_line(0), Some(17));
+		assert_eq!(opened_line(2), Some(18));
+	}
+
+	#[test]
+	fn index_lines_move_with_the_unstaged_changes_above_them() {
+		let unstaged = file_diff(vec![
+			line(None, None), // hunk header
+			line(Some(4), Some(4)),
+			line(Some(5), None),
+			line(None, Some(5)),
+			line(None, Some(6)),
+			line(Some(6), Some(7)),
+		]);
+
+		assert_eq!(index_line_in_workdir(&unstaged, 4), 4);
+		// replaced in the working tree, so it is where it was
+		assert_eq!(index_line_in_workdir(&unstaged, 5), 5);
+		assert_eq!(index_line_in_workdir(&unstaged, 6), 7);
+		assert_eq!(index_line_in_workdir(&unstaged, 20), 21);
 	}
 }

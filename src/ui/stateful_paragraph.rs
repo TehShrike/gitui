@@ -6,7 +6,7 @@ use ratatui::{
 	text::{StyledGrapheme, Text},
 	widgets::{Block, StatefulWidget, Widget, Wrap},
 };
-use std::iter;
+use std::{cell::Cell, iter};
 use unicode_width::UnicodeWidthStr;
 
 use super::reflow::{LineComposer, LineTruncator, WordWrapper};
@@ -55,6 +55,9 @@ pub struct ParagraphState {
 	lines: u16,
 	/// last visible height
 	height: u16,
+	/// index of the line of text that the top visible row belongs to,
+	/// which wrapping makes different from the scroll position
+	top_line: u32,
 }
 
 impl ParagraphState {
@@ -68,6 +71,10 @@ impl ParagraphState {
 
 	pub const fn scroll(self) -> ScrollPos {
 		self.scroll
+	}
+
+	pub const fn top_line(self) -> u32 {
+		self.top_line
 	}
 
 	pub const fn set_scroll(&mut self, scroll: ScrollPos) {
@@ -121,15 +128,22 @@ impl StatefulWidget for StatefulParagraph<'_> {
 		}
 
 		let style = self.style;
+		// lines of text the composer has consumed in full, which makes it
+		// the index of the line that the next row it composes belongs to
+		let lines_consumed = Cell::new(0_u32);
 		let mut styled = self.text.lines.iter().flat_map(|line| {
 			line.spans
 				.iter()
 				.flat_map(|span| span.styled_graphemes(style))
 				// Required given the way composers work but might be refactored out if we change
 				// composers to operate on lines instead of a stream of graphemes.
-				.chain(iter::once(StyledGrapheme {
-					symbol: "\n",
-					style: self.style,
+				.chain(iter::once_with(|| {
+					lines_consumed
+						.set(lines_consumed.get().saturating_add(1));
+					StyledGrapheme {
+						symbol: "\n",
+						style,
+					}
 				}))
 		});
 
@@ -153,9 +167,16 @@ impl StatefulWidget for StatefulParagraph<'_> {
 			};
 		let mut y = 0;
 		let mut end_reached = false;
-		while let Some((current_line, current_line_width)) =
-			line_composer.next_line()
-		{
+		loop {
+			let text_line = lines_consumed.get();
+			let Some((current_line, current_line_width)) =
+				line_composer.next_line()
+			else {
+				break;
+			};
+			if y == state.scroll.y {
+				state.top_line = text_line;
+			}
 			if !end_reached && y >= state.scroll.y {
 				let mut x = get_line_offset(
 					current_line_width,
@@ -188,5 +209,40 @@ impl StatefulWidget for StatefulParagraph<'_> {
 
 		state.lines = y;
 		state.height = area.height;
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// renders four lines, the second of which wraps into four rows,
+	/// and returns the top line along with the text of the top row
+	fn top_line_scrolled_to(y: u16) -> (u32, String) {
+		let area = Rect::new(0, 0, 10, 2);
+		let mut buf = Buffer::empty(area);
+		let mut state = ParagraphState::default();
+		state.set_scroll(ScrollPos { x: 0, y });
+
+		StatefulParagraph::new(
+			"one\ntwo is long enough to wrap\nthree\nfour",
+		)
+		.wrap(Wrap { trim: false })
+		.render(area, &mut buf, &mut state);
+
+		let top_row = (0..area.width)
+			.map(|x| buf[(x, 0)].symbol())
+			.collect::<String>();
+
+		(state.top_line(), top_row.trim_end().to_string())
+	}
+
+	#[test]
+	fn top_line_is_the_line_that_the_top_row_was_wrapped_from() {
+		assert_eq!(top_line_scrolled_to(0), (0, "one".into()));
+		assert_eq!(top_line_scrolled_to(1), (1, "two is".into()));
+		assert_eq!(top_line_scrolled_to(4), (1, "wrap".into()));
+		assert_eq!(top_line_scrolled_to(5), (2, "three".into()));
+		assert_eq!(top_line_scrolled_to(6), (3, "four".into()));
 	}
 }

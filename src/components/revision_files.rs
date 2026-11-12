@@ -520,11 +520,17 @@ impl Component for RevisionFilesComponent {
 				if let Some(file) =
 					self.selected_file_path_with_prefix()
 				{
+					// the file view has no cursor, so the editor
+					// opens where the view is scrolled to
+					let line = (!is_tree_focused)
+						.then(|| self.current_file.top_line());
 					//Note: switch to status tab so its clear we are
 					// not altering a file inside a revision here
 					self.queue.push(InternalEvent::TabSwitchStatus);
 					self.queue.push(
-						InternalEvent::OpenExternalEditor(Some(file)),
+						InternalEvent::OpenExternalEditor(Some((
+							file, line,
+						))),
 					);
 					return Ok(EventState::Consumed);
 				}
