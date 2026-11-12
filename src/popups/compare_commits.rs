@@ -275,6 +275,7 @@ impl CompareCommitsPopup {
 						self.git_diff.last()?
 					{
 						if params == diff_params {
+							self.diff.set_revision(Some(ids.new));
 							self.diff.update(f.path, false, last);
 							return Ok(());
 						}

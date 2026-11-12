@@ -19,7 +19,7 @@ use crate::{
 use anyhow::Result;
 use asyncgit::{
 	hash,
-	sync::{self, diff::DiffLinePosition, RepoPathRef},
+	sync::{self, diff::DiffLinePosition, CommitId, RepoPathRef},
 	DiffLine, DiffLineType, FileDiff, InlineHighlight,
 };
 use bytesize::ByteSize;
@@ -144,28 +144,26 @@ fn build_inline_spans(
 	spans
 }
 
-/// Where line `index_line` of the index version of a file is in the
-/// working tree version, given the unstaged diff between the two. A line
-/// that the working tree no longer has maps to where it was.
-fn index_line_in_workdir(
-	unstaged: &FileDiff,
-	index_line: u32,
-) -> u32 {
-	// lines the working tree has gained on the index above the line
+/// Where line `old_line` of the old version of a file is in the working
+/// tree version, given the diff from that old version (the index or a
+/// commit) to the working tree. A line that the working tree no longer
+/// has maps to where it was.
+fn old_line_in_workdir(to_workdir: &FileDiff, old_line: u32) -> u32 {
+	// lines the working tree has gained on the old version above the line
 	let mut shift = 0_i64;
 
 	for line in
-		unstaged.hunks.iter().flat_map(|hunk| hunk.lines.iter())
+		to_workdir.hunks.iter().flat_map(|hunk| hunk.lines.iter())
 	{
 		match (line.position.old_lineno, line.position.new_lineno) {
-			(Some(old), _) if old >= index_line => break,
+			(Some(old), _) if old >= old_line => break,
 			(Some(_), None) => shift -= 1,
 			(None, Some(_)) => shift += 1,
 			_ => {}
 		}
 	}
 
-	u32::try_from(i64::from(index_line) + shift).unwrap_or(index_line)
+	u32::try_from(i64::from(old_line) + shift).unwrap_or(old_line)
 }
 
 #[derive(Default)]
@@ -255,6 +253,9 @@ pub struct DiffComponent {
 	theme: SharedTheme,
 	key_config: SharedKeyConfig,
 	is_immutable: bool,
+	/// the commit whose version of the file is the new side of the diff,
+	/// when that is not the working tree or the index
+	revision: Option<CommitId>,
 	options: SharedOptions,
 	stage_undo: SharedStageUndo,
 	// hunk to select once the diff of this file arrives: (path, is_stage, index line)
@@ -281,6 +282,7 @@ impl DiffComponent {
 			theme: env.theme.clone(),
 			key_config: env.key_config.clone(),
 			is_immutable,
+			revision: None,
 			repo: env.repo.clone(),
 			options: env.options.clone(),
 			stage_undo: env.stage_undo.clone(),
@@ -298,7 +300,23 @@ impl DiffComponent {
 	}
 	///
 	const fn can_edit_file(&self) -> bool {
-		!self.is_immutable && !self.current.path.is_empty()
+		!self.current.path.is_empty()
+	}
+	/// Says which commit's version of the file the diffs given to
+	/// `update` have as their new side, so that the edit key can find the
+	/// cursor's line in the working tree file.
+	pub const fn set_revision(&mut self, revision: Option<CommitId>) {
+		self.revision = revision;
+	}
+	/// whether the working tree still has the file that the diff is of
+	fn file_is_in_workdir(&self) -> bool {
+		sync::utils::repo_work_dir(&self.repo.borrow()).is_ok_and(
+			|work_dir| {
+				Path::new(&work_dir)
+					.join(&self.current.path)
+					.is_file()
+			},
+		)
 	}
 	/// Line of the working tree file that the cursor is on. A deleted
 	/// line or a hunk header has no line of its own there, so the nearest
@@ -319,23 +337,30 @@ impl DiffComponent {
 			.chain(above.iter().rev())
 			.find_map(|line| line.position.new_lineno)?;
 
-		if !self.current.is_stage {
-			return Some(line);
-		}
-
-		// the staged diff numbers lines as the index has them, and
-		// unstaged changes further up the file move them
-		Some(
+		// a diff that does not end at the working tree numbers lines as
+		// the index or the commit has them, and the changes made further
+		// up the file since then move them
+		let to_workdir = if let Some(revision) = self.revision {
+			sync::diff::get_diff_commit_to_workdir(
+				&self.repo.borrow(),
+				revision,
+				&self.current.path,
+				None,
+			)
+		} else if self.current.is_stage {
 			sync::diff::get_diff(
 				&self.repo.borrow(),
 				&self.current.path,
 				false,
 				None,
 			)
-			.map_or(line, |unstaged| {
-				index_line_in_workdir(&unstaged, line)
-			}),
-		)
+		} else {
+			return Some(line);
+		};
+
+		Some(to_workdir.map_or(line, |to_workdir| {
+			old_line_in_workdir(&to_workdir, line)
+		}))
 	}
 	///
 	pub fn clear(&mut self, pending: bool) {
@@ -1107,12 +1132,13 @@ impl Component for DiffComponent {
 			.hidden(),
 		);
 
+		out.push(CommandInfo::new(
+			strings::commands::edit_item(&self.key_config),
+			self.can_edit_file(),
+			self.focused() && self.can_edit_file(),
+		));
+
 		if !self.is_immutable {
-			out.push(CommandInfo::new(
-				strings::commands::edit_item(&self.key_config),
-				self.can_edit_file(),
-				self.focused() && self.can_edit_file(),
-			));
 			out.push(CommandInfo::new(
 				strings::commands::diff_hunk_remove(&self.key_config),
 				self.selected_hunk.is_some(),
@@ -1242,12 +1268,26 @@ impl Component for DiffComponent {
 				} else if key_match(e, self.key_config.keys.edit_file)
 					&& self.can_edit_file()
 				{
-					self.queue.push(
-						InternalEvent::OpenExternalEditor(Some((
-							self.current.path.clone(),
-							self.cursor_file_line(),
-						))),
-					);
+					// a file of an old commit may be gone by now, and
+					// the editor would make a new file of that name
+					if self.is_immutable && !self.file_is_in_workdir()
+					{
+						self.queue.push(InternalEvent::ShowErrorMsg(
+							format!(
+								"{} is not in the working tree",
+								self.current.path
+							),
+						));
+					} else {
+						self.queue.push(
+							InternalEvent::OpenExternalEditor(Some(
+								(
+									self.current.path.clone(),
+									self.cursor_file_line(),
+								),
+							)),
+						);
+					}
 					Ok(EventState::Consumed)
 				} else if key_match(
 					e,
@@ -1474,6 +1514,27 @@ mod tests {
 		));
 	}
 
+	#[test]
+	fn diff_component_of_a_commit_offers_edit_but_not_staging() {
+		let env = Environment::test_env();
+		let mut diff = DiffComponent::new(&env, true);
+		diff.focus(true);
+		diff.current.path = String::from("src/main.rs");
+
+		let mut commands = Vec::new();
+		diff.commands(&mut commands, false);
+
+		let edit = strings::commands::edit_item(&env.key_config);
+		assert!(commands
+			.iter()
+			.any(|command| command.text.name == edit.name
+				&& command.enabled));
+		let stage = strings::commands::diff_hunk_add(&env.key_config);
+		assert!(!commands
+			.iter()
+			.any(|command| command.text.name == stage.name));
+	}
+
 	fn line(old: Option<u32>, new: Option<u32>) -> DiffLine {
 		DiffLine {
 			content: "".into(),
@@ -1548,10 +1609,10 @@ mod tests {
 			line(Some(6), Some(7)),
 		]);
 
-		assert_eq!(index_line_in_workdir(&unstaged, 4), 4);
+		assert_eq!(old_line_in_workdir(&unstaged, 4), 4);
 		// replaced in the working tree, so it is where it was
-		assert_eq!(index_line_in_workdir(&unstaged, 5), 5);
-		assert_eq!(index_line_in_workdir(&unstaged, 6), 7);
-		assert_eq!(index_line_in_workdir(&unstaged, 20), 21);
+		assert_eq!(old_line_in_workdir(&unstaged, 5), 5);
+		assert_eq!(old_line_in_workdir(&unstaged, 6), 7);
+		assert_eq!(old_line_in_workdir(&unstaged, 20), 21);
 	}
 }

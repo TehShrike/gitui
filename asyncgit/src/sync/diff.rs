@@ -251,6 +251,37 @@ pub fn get_diff_commit(
 	raw_diff_to_file_diff(&diff, work_dir)
 }
 
+/// returns diff of a specific file between how commit `id` has it and
+/// how the working tree has it
+pub fn get_diff_commit_to_workdir(
+	repo_path: &RepoPath,
+	id: CommitId,
+	p: &str,
+	options: Option<DiffOptions>,
+) -> Result<FileDiff> {
+	scope_time!("get_diff_commit_to_workdir");
+
+	let repo = repo(repo_path)?;
+	let work_dir = work_dir(&repo)?;
+
+	let mut opt = git2::DiffOptions::new();
+	if let Some(options) = options {
+		opt.context_lines(options.context);
+		opt.ignore_whitespace(options.ignore_whitespace);
+		opt.interhunk_lines(options.interhunk_lines);
+	}
+	opt.pathspec(p);
+	opt.disable_pathspec_match(true);
+	opt.include_untracked(true);
+	opt.recurse_untracked_dirs(true);
+
+	let tree = repo.find_commit(id.into())?.tree()?;
+	let diff =
+		repo.diff_tree_to_workdir(Some(&tree), Some(&mut opt))?;
+
+	raw_diff_to_file_diff(&diff, work_dir)
+}
+
 /// get file changes of a diff between two commits
 pub fn get_diff_commits(
 	repo_path: &RepoPath,
@@ -692,7 +723,9 @@ fn new_file_content(path: &Path) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-	use super::{get_diff, get_diff_commit};
+	use super::{
+		get_diff, get_diff_commit, get_diff_commit_to_workdir,
+	};
 	use crate::{
 		error::Result,
 		sync::{
@@ -855,6 +888,46 @@ mod tests {
 		.unwrap();
 
 		assert_eq!(&*diff.hunks[0].lines[1].content, "test");
+	}
+
+	#[test]
+	fn test_diff_commit_to_workdir() -> Result<()> {
+		let file_path = Path::new("bar");
+		let (_td, repo) = repo_init_empty().unwrap();
+		let root = repo.path().parent().unwrap();
+		let repo_path: &RepoPath =
+			&root.as_os_str().to_str().unwrap().into();
+
+		File::create(root.join(file_path))?.write_all(b"a\nb\n")?;
+		stage_add_file(repo_path, file_path).unwrap();
+		let first = commit(repo_path, "first").unwrap();
+
+		File::create(root.join(file_path))?
+			.write_all(b"new\na\nb\n")?;
+		stage_add_file(repo_path, file_path).unwrap();
+		commit(repo_path, "second").unwrap();
+
+		File::create(root.join(file_path))?
+			.write_all(b"newer\nnew\na\nb\n")?;
+
+		let diff = get_diff_commit_to_workdir(
+			repo_path,
+			first,
+			file_path.to_str().unwrap(),
+			None,
+		)
+		.unwrap();
+
+		// both the committed and the uncommitted line count
+		let added: Vec<_> = diff.hunks[0]
+			.lines
+			.iter()
+			.filter(|line| line.position.old_lineno.is_none())
+			.filter_map(|line| line.position.new_lineno)
+			.collect();
+		assert_eq!(added, [1, 2]);
+
+		Ok(())
 	}
 
 	#[test]

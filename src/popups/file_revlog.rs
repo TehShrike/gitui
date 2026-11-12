@@ -173,6 +173,7 @@ impl FileRevlogPopup {
 						self.git_diff.last()?
 					{
 						if params == diff_params {
+							self.diff.set_revision(Some(commit_id));
 							self.diff.update(
 								open_request.file_path.clone(),
 								false,
