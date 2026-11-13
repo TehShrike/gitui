@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 /// continuous hold. Must exceed the OS initial key-repeat delay.
 const HOLD_GAP: Duration = Duration::from_millis(500);
 /// How long a key has to be held before movement speeds up.
-const HOLD_ACCELERATE_AFTER: Duration = Duration::from_millis(400);
+const HOLD_ACCELERATE_AFTER: Duration = Duration::from_millis(800);
 /// Lines moved per press once the key has been held long enough.
 const HOLD_STEP: usize = 2;
 
