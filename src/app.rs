@@ -759,6 +759,35 @@ impl App {
 		Ok(flags)
 	}
 
+	/// Opens the file in the editor straight away if that editor leaves
+	/// the terminal alone, which spares the screen the handover that a
+	/// terminal editor needs. Returns whether that took care of it.
+	fn open_in_gui_editor(
+		&mut self,
+		file: Option<&(String, Option<u32>)>,
+	) -> Result<bool> {
+		let Some((path, line)) = file else {
+			return Ok(false);
+		};
+
+		let result =
+			ExternalEditorPopup::open_worktree_file_in_gui_editor(
+				&self.repo.borrow(),
+				Path::new(path),
+				*line,
+			);
+
+		match result {
+			Ok(opened) => Ok(opened),
+			Err(e) => {
+				let msg = format!("failed to launch editor:\n{e}");
+				log::error!("{}", msg.as_str());
+				self.msg_popup.show_error(msg.as_str())?;
+				Ok(true)
+			}
+		}
+	}
+
 	#[allow(clippy::too_many_lines)]
 	fn process_internal_event(
 		&mut self,
@@ -840,10 +869,12 @@ impl App {
 				}
 			}
 			InternalEvent::OpenExternalEditor(file) => {
-				self.input.set_polling(false);
-				self.external_editor_popup.show()?;
-				self.file_to_open = file;
-				flags.insert(NeedsUpdate::COMMANDS);
+				if !self.open_in_gui_editor(file.as_ref())? {
+					self.input.set_polling(false);
+					self.external_editor_popup.show()?;
+					self.file_to_open = file;
+					flags.insert(NeedsUpdate::COMMANDS);
+				}
 			}
 			InternalEvent::Push(branch, push_type, force, delete) => {
 				self.push_popup

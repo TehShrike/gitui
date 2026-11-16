@@ -28,7 +28,11 @@ use ratatui::{
 };
 use scopeguard::defer;
 use std::ffi::{OsStr, OsString};
-use std::{env, io, path::Path, process::Command};
+use std::{
+	env, io,
+	path::Path,
+	process::{Command, Stdio},
+};
 
 /// editor for working tree files, see `open_worktree_file`
 const ENV_FILE_EDITOR: &str = "GITUI_FILE_EDITOR";
@@ -72,12 +76,80 @@ impl ExternalEditorPopup {
 		Self::open(repo, path, line, true)
 	}
 
+	/// Opens a working tree file as `open_worktree_file` does, but
+	/// only if the editor has a window of its own, and without waiting
+	/// for it. Such an editor leaves the terminal alone, so there is no
+	/// need to hand the screen over to it and redraw afterwards.
+	///
+	/// Returns whether the editor was started: `false` means that it
+	/// needs the terminal.
+	pub fn open_worktree_file_in_gui_editor(
+		repo: &RepoPath,
+		path: &Path,
+		line: Option<u32>,
+	) -> Result<bool> {
+		let mut editor = EditorCommand::new(repo, path, line, true)?;
+
+		if !is_gui_editor(&editor.name) {
+			return Ok(false);
+		}
+
+		let mut child = editor
+			.command
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.spawn()
+			.map_err(|e| anyhow!("\"{}\": {e}", editor.name))?;
+
+		// reaps the process once it ends, which with an editor that
+		// waits for the file to be closed can be a long time
+		std::thread::spawn(move || {
+			let _ = child.wait();
+		});
+
+		Ok(true)
+	}
+
 	fn open(
 		repo: &RepoPath,
 		path: &Path,
 		line: Option<u32>,
 		is_worktree_file: bool,
 	) -> Result<()> {
+		let mut editor =
+			EditorCommand::new(repo, path, line, is_worktree_file)?;
+
+		disable_keyboard_enhancement();
+		io::stdout().execute(LeaveAlternateScreen)?;
+		defer! {
+			io::stdout().execute(EnterAlternateScreen).expect("reset terminal");
+			enable_keyboard_enhancement();
+		}
+
+		editor
+			.command
+			.status()
+			.map_err(|e| anyhow!("\"{}\": {e}", editor.name))?;
+
+		Ok(())
+	}
+}
+
+/// the editor's command line for opening a file
+struct EditorCommand {
+	/// the editor's executable, as the setting it came from has it
+	name: String,
+	command: Command,
+}
+
+impl EditorCommand {
+	fn new(
+		repo: &RepoPath,
+		path: &Path,
+		line: Option<u32>,
+		is_worktree_file: bool,
+	) -> Result<Self> {
 		let work_dir = repo_work_dir(repo)?;
 
 		let path = if path.is_relative() {
@@ -88,13 +160,6 @@ impl ExternalEditorPopup {
 
 		if !path.exists() {
 			bail!("file not found: {path:?}");
-		}
-
-		disable_keyboard_enhancement();
-		io::stdout().execute(LeaveAlternateScreen)?;
-		defer! {
-			io::stdout().execute(EnterAlternateScreen).expect("reset terminal");
-			enable_keyboard_enhancement();
 		}
 
 		let environment_options = ["GIT_EDITOR", "VISUAL", "EDITOR"];
@@ -145,14 +210,45 @@ impl ExternalEditorPopup {
 
 		args.extend(file_args(&command, &path, line));
 
-		Command::new(command.clone())
-			.current_dir(work_dir)
-			.args(args)
-			.status()
-			.map_err(|e| anyhow!("\"{command}\": {e}"))?;
+		let mut process = Command::new(&command);
+		process.current_dir(work_dir).args(args);
 
-		Ok(())
+		Ok(Self {
+			name: command,
+			command: process,
+		})
 	}
+}
+
+/// The editor that `command` runs, going by its name. Only the first
+/// word of the name counts, so that a wrapper script named for its
+/// editor, like `subl-repo-window`, is taken for that editor.
+fn editor_name(command: &str) -> String {
+	let name = Path::new(command)
+		.file_stem()
+		.and_then(OsStr::to_str)
+		.unwrap_or_default()
+		.to_lowercase();
+
+	name.split(['-', '_'])
+		.next()
+		.unwrap_or_default()
+		.to_string()
+}
+
+/// whether the editor `command` opens files in a window of its own
+/// rather than in the terminal
+fn is_gui_editor(command: &str) -> bool {
+	matches!(
+		editor_name(command).as_str(),
+		"subl"
+			| "sublime"
+			| "zed" | "code"
+			| "codium"
+			| "cursor"
+			| "windsurf"
+			| "gvim" | "mvim"
+	)
 }
 
 /// arguments that make the editor `command` open `path`, at `line` if
@@ -172,17 +268,7 @@ fn file_args(
 		arg
 	};
 
-	let name = Path::new(command)
-		.file_stem()
-		.and_then(OsStr::to_str)
-		.unwrap_or_default()
-		.to_lowercase();
-
-	// only the first word of the name counts, so that a wrapper script
-	// named for its editor, like `subl-repo-window`, gets its syntax
-	let editor = name.split(['-', '_']).next().unwrap_or_default();
-
-	match editor {
+	match editor_name(command).as_str() {
 		"vi" | "vim" | "nvim" | "gvim" | "mvim" | "nano"
 		| "emacs" | "emacsclient" | "kak" | "micro" => {
 			vec![format!("+{line}").into(), path.into()]
@@ -312,6 +398,16 @@ mod tests {
 		);
 		// a name that merely starts with an editor's name is not one
 		assert_eq!(args("vimdiff", Some(3)), ["/repo/src/main.rs"]);
+	}
+
+	#[test]
+	fn editors_with_their_own_window_are_told_from_terminal_ones() {
+		assert!(is_gui_editor("subl"));
+		assert!(is_gui_editor("/home/me/scripts/subl-repo-window"));
+		assert!(is_gui_editor("code-insiders"));
+		assert!(!is_gui_editor("vim"));
+		assert!(!is_gui_editor("hx"));
+		assert!(!is_gui_editor("my-editor"));
 	}
 
 	#[test]
