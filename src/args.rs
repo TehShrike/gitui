@@ -18,6 +18,7 @@ const LOGGING_FLAG_ID: &str = "logging";
 const THEME_FLAG_ID: &str = "theme";
 const WORKDIR_FLAG_ID: &str = "workdir";
 const FILE_FLAG_ID: &str = "file";
+const DIFF_FLAG_ID: &str = "diff";
 const GIT_DIR_FLAG_ID: &str = "directory";
 const WATCHER_FLAG_ID: &str = "watcher";
 const KEY_BINDINGS_FLAG_ID: &str = "key_bindings";
@@ -29,6 +30,7 @@ const DEFAULT_GIT_DIR: &str = ".";
 pub struct CliArgs {
 	pub theme: PathBuf,
 	pub select_file: Option<PathBuf>,
+	pub diff_range: Option<String>,
 	pub repo_path: RepoPath,
 	pub notify_watcher: bool,
 	pub key_bindings_path: Option<PathBuf>,
@@ -61,6 +63,9 @@ pub fn process_cmdline() -> Result<CliArgs> {
 	let select_file = arg_matches
 		.get_one::<String>(FILE_FLAG_ID)
 		.map(PathBuf::from);
+
+	let diff_range =
+		arg_matches.get_one::<String>(DIFF_FLAG_ID).cloned();
 
 	let repo_path = if let Some(w) = workdir {
 		RepoPath::Workdir { gitdir, workdir: w }
@@ -95,6 +100,7 @@ pub fn process_cmdline() -> Result<CliArgs> {
 	Ok(CliArgs {
 		theme,
 		select_file,
+		diff_range,
 		repo_path,
 		notify_watcher,
 		key_bindings_path,
@@ -172,6 +178,13 @@ fn app() -> ClapApp {
 				.help("Select the file in the file tab")
 				.short('f')
 				.long("file")
+				.num_args(1),
+		)
+		.arg(
+			Arg::new(DIFF_FLAG_ID)
+				.help("Show only the diff of a revision range such as main..feature or main...feature, and quit when it is closed")
+				.long("diff")
+				.value_name("RANGE")
 				.num_args(1),
 		)
 		.arg(

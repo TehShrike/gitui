@@ -2,11 +2,11 @@
 
 use super::{diff::DiffOptions, CommitId, RepoPath};
 use crate::{
-	error::Result,
+	error::{Error, Result},
 	sync::{get_stashes, repository::repo},
 	StatusItem, StatusItemType,
 };
-use git2::{Diff, Repository};
+use git2::{Diff, Repository, RevparseMode};
 use scopetime::scope_time;
 use std::collections::HashSet;
 
@@ -17,6 +17,39 @@ pub struct OldNew<T> {
 	pub old: T,
 	/// The new version
 	pub new: T,
+}
+
+/// Resolves a revision range to the two commits it compares.
+///
+/// `a..b` compares `a` with `b`, while `a...b` compares the merge base
+/// of `a` and `b` with `b`, matching `git diff`.
+pub fn revision_range(
+	repo_path: &RepoPath,
+	range: &str,
+) -> Result<OldNew<CommitId>> {
+	scope_time!("revision_range");
+
+	let repo = repo(repo_path)?;
+	let spec = repo.revparse(range)?;
+
+	let (Some(from), Some(to)) = (spec.from(), spec.to()) else {
+		return Err(Error::Generic(format!(
+			"'{range}' is not a revision range such as 'a..b'"
+		)));
+	};
+
+	let from = from.peel_to_commit()?.id();
+	let new = to.peel_to_commit()?.id();
+	let old = if spec.mode().contains(RevparseMode::MERGE_BASE) {
+		repo.merge_base(from, new)?
+	} else {
+		from
+	};
+
+	Ok(OldNew {
+		old: old.into(),
+		new: new.into(),
+	})
 }
 
 /// Sort two commits.
@@ -181,12 +214,12 @@ pub(crate) fn get_commit_diff<'a>(
 
 #[cfg(test)]
 mod tests {
-	use super::get_commit_files;
+	use super::{get_commit_files, revision_range, OldNew};
 	use crate::{
 		error::Result,
 		sync::{
 			commit, stage_add_file, stash_save,
-			tests::{get_statuses, repo_init},
+			tests::{get_statuses, repo_init, write_commit_file},
 			RepoPath,
 		},
 		StatusItemType,
@@ -265,5 +298,85 @@ mod tests {
 		assert_eq!(diff[1].status, StatusItemType::New);
 
 		Ok(())
+	}
+
+	#[test]
+	fn revision_range_resolves_two_and_three_dot_ranges() -> Result<()>
+	{
+		let (_td, repo) = repo_init()?;
+		let root = repo.path().parent().unwrap();
+		let repo_path: &RepoPath =
+			&root.as_os_str().to_str().unwrap().into();
+
+		let base = write_commit_file(&repo, "a.txt", "1", "base");
+		let side = {
+			let base = repo.find_commit(base.get_oid())?;
+			let sig = repo.signature()?;
+			repo.commit(
+				Some("refs/heads/side"),
+				&sig,
+				&sig,
+				"side",
+				&base.tree()?,
+				&[&base],
+			)?
+		};
+		let head = write_commit_file(&repo, "a.txt", "2", "head");
+
+		assert_eq!(
+			revision_range(repo_path, "side..HEAD")?,
+			OldNew {
+				old: side.into(),
+				new: head
+			}
+		);
+		assert_eq!(
+			revision_range(repo_path, "side...HEAD")?,
+			OldNew {
+				old: base,
+				new: head
+			}
+		);
+
+		Ok(())
+	}
+
+	#[test]
+	fn revision_range_peels_annotated_tags() -> Result<()> {
+		let (_td, repo) = repo_init()?;
+		let root = repo.path().parent().unwrap();
+		let repo_path: &RepoPath =
+			&root.as_os_str().to_str().unwrap().into();
+
+		let tagged = write_commit_file(&repo, "a.txt", "1", "tagged");
+		repo.tag(
+			"v1",
+			&repo.find_object(tagged.get_oid(), None)?,
+			&repo.signature()?,
+			"release",
+			false,
+		)?;
+		let head = write_commit_file(&repo, "a.txt", "2", "head");
+
+		assert_eq!(
+			revision_range(repo_path, "v1..HEAD")?,
+			OldNew {
+				old: tagged,
+				new: head
+			}
+		);
+
+		Ok(())
+	}
+
+	#[test]
+	fn revision_range_rejects_single_and_unknown_revisions() {
+		let (_td, repo) = repo_init().unwrap();
+		let root = repo.path().parent().unwrap();
+		let repo_path: &RepoPath =
+			&root.as_os_str().to_str().unwrap().into();
+
+		assert!(revision_range(repo_path, "HEAD").is_err());
+		assert!(revision_range(repo_path, "nope..HEAD").is_err());
 	}
 }

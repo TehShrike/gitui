@@ -34,7 +34,7 @@ use crate::{
 	ui::style::{SharedTheme, Theme},
 	AsyncAppNotification, AsyncNotification,
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use asyncgit::{
 	sync::{
 		self,
@@ -254,6 +254,15 @@ impl App {
 		};
 
 		app.set_tab(tab)?;
+
+		if let Some(range) = cliargs.diff_range {
+			let commits =
+				sync::revision_range(&app.repo.borrow(), &range)
+					.with_context(|| {
+						format!("failed to resolve --diff {range}")
+					})?;
+			app.compare_commits_popup.open_standalone(commits)?;
+		}
 
 		Ok(app)
 	}
@@ -964,6 +973,8 @@ impl App {
 					flags.insert(
 						NeedsUpdate::ALL | NeedsUpdate::COMMANDS,
 					);
+				} else if self.compare_commits_popup.is_standalone() {
+					self.do_quit = QuitState::Close;
 				}
 			}
 			InternalEvent::PopupStackPush(popup) => {

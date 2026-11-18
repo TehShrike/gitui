@@ -34,6 +34,7 @@ pub struct CompareCommitsPopup {
 	details: CommitDetailsComponent,
 	git_diff: AsyncDiff,
 	visible: bool,
+	standalone: bool,
 	key_config: SharedKeyConfig,
 	queue: Queue,
 	options: SharedOptions,
@@ -129,7 +130,14 @@ impl Component for CompareCommitsPopup {
 					return Ok(EventState::NotConsumed);
 				}
 
-				if key_match(e, self.key_config.keys.exit_popup) {
+				if self.standalone
+					&& key_match(e, self.key_config.keys.quit)
+				{
+					self.hide_stacked(false);
+				} else if key_match(
+					e,
+					self.key_config.keys.exit_popup,
+				) {
 					if self.diff.focused() {
 						self.details.focus(true);
 						self.diff.focus(false);
@@ -143,7 +151,8 @@ impl Component for CompareCommitsPopup {
 				{
 					self.details.focus(false);
 					self.diff.focus(true);
-				} else if key_match(e, self.key_config.keys.move_left)
+				} else if !self.standalone
+					&& key_match(e, self.key_config.keys.move_left)
 				{
 					self.hide_stacked(false);
 				} else if key_match(
@@ -200,6 +209,7 @@ impl CompareCommitsPopup {
 				&env.sender_git,
 			),
 			visible: false,
+			standalone: false,
 			key_config: env.key_config.clone(),
 			queue: env.queue.clone(),
 			options: env.options.clone(),
@@ -221,6 +231,25 @@ impl CompareCommitsPopup {
 		self.show()?;
 
 		Ok(())
+	}
+
+	/// Opens the comparison as the app's only view, so closing it
+	/// quits the app.
+	pub fn open_standalone(
+		&mut self,
+		commits: OldNew<CommitId>,
+	) -> Result<()> {
+		self.standalone = true;
+		self.open(InspectCommitOpen {
+			commit_id: commits.new,
+			compare_id: Some(commits.old),
+			tags: None,
+		})
+	}
+
+	///
+	pub const fn is_standalone(&self) -> bool {
+		self.standalone
 	}
 
 	///

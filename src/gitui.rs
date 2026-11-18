@@ -212,7 +212,7 @@ mod tests {
 	use ratatui::{backend::TestBackend, Terminal};
 
 	use crate::{
-		args::CliArgs, gitui::Gitui, keys::KeyConfig,
+		app::QuitState, args::CliArgs, gitui::Gitui, keys::KeyConfig,
 		ui::style::Theme, AsyncNotification, Updater,
 	};
 
@@ -260,6 +260,7 @@ mod tests {
 		let cliargs = CliArgs {
 			theme: PathBuf::from("theme.ron"),
 			select_file: None,
+			diff_range: None,
 			repo_path: temp_dir.path().to_str().unwrap().into(),
 			notify_watcher: false,
 			key_bindings_path: None,
@@ -343,6 +344,7 @@ mod tests {
 		let cliargs = CliArgs {
 			theme: PathBuf::from("theme.ron"),
 			select_file: None,
+			diff_range: None,
 			repo_path: temp_dir.path().to_str().unwrap().into(),
 			notify_watcher: false,
 			key_bindings_path: None,
@@ -397,6 +399,7 @@ mod tests {
 		let cliargs = CliArgs {
 			theme: PathBuf::from("theme.ron"),
 			select_file: None,
+			diff_range: None,
 			repo_path: temp_dir.path().to_str().unwrap().into(),
 			notify_watcher: false,
 			key_bindings_path: None,
@@ -444,6 +447,118 @@ mod tests {
 		assert!(s.contains("┌Diff:"));
 	}
 
+	fn gitui_showing_diff_of_two_commits(
+		suffix: &str,
+	) -> (tempfile::TempDir, Gitui) {
+		let (temp_dir, repo) = repo_init_suffix(Some(suffix));
+		{
+			std::fs::write(temp_dir.path().join("a.txt"), "1\n")
+				.unwrap();
+			let mut index = repo.index().unwrap();
+			index.add_path(std::path::Path::new("a.txt")).unwrap();
+			index.write().unwrap();
+			let tree =
+				repo.find_tree(index.write_tree().unwrap()).unwrap();
+			let sig = repo.signature().unwrap();
+			let head = repo.head().unwrap().peel_to_commit().unwrap();
+			repo.commit(
+				Some("HEAD"),
+				&sig,
+				&sig,
+				"add a",
+				&tree,
+				&[&head],
+			)
+			.unwrap();
+		}
+
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			diff_range: Some("HEAD~1..HEAD".into()),
+			repo_path: temp_dir.path().to_str().unwrap().into(),
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+		let mut gitui = Gitui::new(
+			cliargs,
+			Theme::init(&PathBuf::new()),
+			&KeyConfig::default(),
+			Updater::Ticker,
+		)
+		.unwrap();
+
+		for notification in [
+			AsyncGitNotification::CommitFiles,
+			AsyncGitNotification::Diff,
+		] {
+			gitui.wait_for_async_git_notification(notification);
+			gitui.update_async(AsyncNotification::Git(notification));
+		}
+
+		(temp_dir, gitui)
+	}
+
+	fn quit_requested(gitui: &Gitui) -> bool {
+		matches!(gitui.app.quit_state(), QuitState::Close)
+	}
+
+	#[test]
+	fn diff_range_opens_the_comparison_and_quits_on_quit_key() {
+		let (_temp_dir, mut gitui) =
+			gitui_showing_diff_of_two_commits("-diff-quit");
+		let mut terminal =
+			Terminal::new(TestBackend::new(160, 30)).unwrap();
+
+		gitui.draw(&mut terminal).unwrap();
+		let screen = terminal.backend().to_string();
+		assert!(screen.contains("a.txt"));
+		assert!(screen.contains("┌Diff:"));
+
+		// moving left in the file list must not close the only view
+		gitui.input_event(KeyCode::Left, KeyModifiers::empty());
+		assert!(!quit_requested(&gitui));
+
+		gitui.input_event(KeyCode::Char('q'), KeyModifiers::empty());
+		assert!(quit_requested(&gitui));
+	}
+
+	#[test]
+	fn diff_range_leaves_the_diff_then_quits_on_escape() {
+		let (_temp_dir, mut gitui) =
+			gitui_showing_diff_of_two_commits("-diff-esc");
+
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		gitui.input_event(KeyCode::Esc, KeyModifiers::empty());
+		assert!(!quit_requested(&gitui));
+
+		gitui.input_event(KeyCode::Esc, KeyModifiers::empty());
+		assert!(quit_requested(&gitui));
+	}
+
+	#[test]
+	fn diff_range_with_unknown_revision_fails_to_start() {
+		let (temp_dir, _repo) = repo_init_suffix(Some("-diff-bad"));
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			diff_range: Some("nope..HEAD".into()),
+			repo_path: temp_dir.path().to_str().unwrap().into(),
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+
+		assert!(Gitui::new(
+			cliargs,
+			Theme::init(&PathBuf::new()),
+			&KeyConfig::default(),
+			Updater::Ticker,
+		)
+		.is_err());
+	}
+
 	#[test]
 	fn gitui_starts() {
 		apply_common_filters!();
@@ -453,6 +568,7 @@ mod tests {
 		let cliargs = CliArgs {
 			theme: PathBuf::from("theme.ron"),
 			select_file: None,
+			diff_range: None,
 			repo_path: path,
 			notify_watcher: false,
 			key_bindings_path: None,

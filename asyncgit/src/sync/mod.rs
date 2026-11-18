@@ -50,7 +50,7 @@ pub use commit::{amend, commit, tag_commit};
 pub use commit_details::{
 	get_commit_details, CommitDetails, CommitMessage, CommitSignature,
 };
-pub use commit_files::get_commit_files;
+pub use commit_files::{get_commit_files, revision_range};
 pub use commit_filter::{
 	diff_contains_file, filter_commit_by_search, LogFilterSearch,
 	LogFilterSearchOptions, SearchFields, SearchOptions,
