@@ -5,7 +5,7 @@ use crate::{
 		CommandInfo, Component, DiffComponent, DrawableComponent,
 		EventState, ItemBatch, ScrollType,
 	},
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{InternalEvent, NeedsUpdate, Queue, StackablePopupOpen},
 	strings, try_or_popup,
@@ -444,6 +444,15 @@ impl FileRevlogPopup {
 		self.current_height.set(area.height.into());
 	}
 
+	/// from the diff to the list of commits, from there out of the popup
+	fn go_back(&mut self) {
+		if self.diff.focused() {
+			self.diff.focus(false);
+		} else {
+			self.hide_stacked(false);
+		}
+	}
+
 	fn hide_stacked(&mut self, stack: bool) {
 		self.hide();
 
@@ -509,12 +518,10 @@ impl Component for FileRevlogPopup {
 					return Ok(EventState::NotConsumed);
 				}
 
-				if key_match(key, self.key_config.keys.exit_popup) {
-					if self.diff.focused() {
-						self.diff.focus(false);
-					} else {
-						self.hide_stacked(false);
-					}
+				if key_match(key, self.key_config.keys.exit_popup)
+					|| key_goes_back(key, &self.key_config.keys)
+				{
+					self.go_back();
 				} else if key_match(
 					key,
 					self.key_config.keys.move_right,

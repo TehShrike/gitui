@@ -181,20 +181,6 @@ impl FileTreeItems {
 		self.file_count
 	}
 
-	///
-	pub(crate) fn find_parent_index(&self, index: usize) -> usize {
-		let item_indent = &self.items[index].info.indent;
-		let mut parent_index = index;
-		while item_indent <= &self.items[parent_index].info.indent {
-			if parent_index == 0 {
-				return 0;
-			}
-			parent_index -= 1;
-		}
-
-		parent_index
-	}
-
 	fn push_dirs<'a>(
 		item_path: &'a Path,
 		nodes: &mut Vec<FileTreeItem>,
@@ -407,24 +393,5 @@ mod tests {
 		assert!(!res.multiple_items_at_path(0));
 		assert!(!res.multiple_items_at_path(1));
 		assert!(res.multiple_items_at_path(2));
-	}
-
-	#[test]
-	fn test_find_parent() {
-		//0 a/
-		//1   b/
-		//2     c
-		//3     d
-
-		let res = FileTreeItems::new(
-			&string_vec_to_status(&[
-				"a/b/c", //
-				"a/b/d", //
-			]),
-			&BTreeSet::new(),
-		)
-		.unwrap();
-
-		assert_eq!(res.find_parent_index(3), 1);
 	}
 }

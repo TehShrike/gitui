@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
 	app::Environment,
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	popups::{BlameFileOpen, FileRevOpen},
 	queue::{InternalEvent, Queue, StackablePopupOpen},
 	strings::{self, order, symbol},
@@ -265,6 +265,10 @@ impl RevisionFilesComponent {
 		})
 	}
 
+	fn is_folder_selected(&self) -> bool {
+		!self.tree.is_empty() && self.tree.selected_file().is_none()
+	}
+
 	fn selection_changed(&mut self) {
 		//TODO: retrieve TreeFile from tree datastructure
 		if let Some(file) = self.selected_file_path_with_prefix() {
@@ -499,16 +503,26 @@ impl Component for RevisionFilesComponent {
 			} else if key_match(key, self.key_config.keys.move_right)
 			{
 				if is_tree_focused {
-					self.focus = Focus::File;
-					self.current_file.focus(true);
-					self.focus(true);
+					// on a folder right only unfolds
+					if !self.is_folder_selected() {
+						self.focus = Focus::File;
+						self.current_file.focus(true);
+						self.focus(true);
+					}
 					return Ok(EventState::Consumed);
 				}
 			} else if key_match(key, self.key_config.keys.move_left) {
 				if !is_tree_focused {
-					self.focus = Focus::Tree;
-					self.current_file.focus(false);
-					self.focus(false);
+					if key_goes_back(key, &self.key_config.keys) {
+						self.focus = Focus::Tree;
+						self.current_file.focus(false);
+						self.focus(false);
+					}
+					return Ok(EventState::Consumed);
+				}
+				// on a folder left only folds, on a file it is passed
+				// on for whoever shows the tree to go back
+				if self.is_folder_selected() {
 					return Ok(EventState::Consumed);
 				}
 			} else if key_match(key, self.key_config.keys.file_find) {

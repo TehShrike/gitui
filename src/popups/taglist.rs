@@ -5,7 +5,7 @@ use crate::components::{
 use crate::{
 	app::Environment,
 	components::ScrollType,
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	queue::{Action, InternalEvent, Queue},
 	strings,
 	ui::{self, Size},
@@ -185,7 +185,9 @@ impl Component for TagListPopup {
 	fn event(&mut self, event: &Event) -> Result<EventState> {
 		if self.visible {
 			if let Event::Key(key) = event {
-				if key_match(key, self.key_config.keys.exit_popup) {
+				if key_match(key, self.key_config.keys.exit_popup)
+					|| key_goes_back(key, &self.key_config.keys)
+				{
 					self.hide();
 				} else if key_match(key, self.key_config.keys.move_up)
 				{

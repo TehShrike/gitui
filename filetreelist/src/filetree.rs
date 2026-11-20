@@ -268,20 +268,7 @@ impl FileTree {
 		}
 	}
 
-	fn select_parent(&self, current_index: usize) -> Option<usize> {
-		let current_indent =
-			self.items.tree_items[current_index].info().indent();
-
-		let range = (0..=current_index).rev();
-
-		range.filter(|index| self.is_visible_index(*index)).find(
-			|index| {
-				self.items.tree_items[*index].info().indent()
-					< current_indent
-			},
-		)
-	}
-
+	/// collapses an expanded folder, anything else is left alone
 	fn selection_left(
 		&mut self,
 		current_index: usize,
@@ -293,24 +280,19 @@ impl FileTree {
 			return Some(current_index);
 		}
 
-		self.select_parent(current_index)
+		None
 	}
 
+	/// expands a collapsed folder, anything else is left alone
 	fn selection_right(
 		&mut self,
 		current_selection: usize,
 	) -> Option<usize> {
 		let item = &mut self.items.tree_items[current_selection];
 
-		if item.kind().is_path() {
-			if item.kind().is_path_collapsed() {
-				self.items.expand(current_selection, false);
-				return Some(current_selection);
-			}
-			return self.selection_updown(
-				current_selection,
-				Direction::Down,
-			);
+		if item.kind().is_path() && item.kind().is_path_collapsed() {
+			self.items.expand(current_selection, false);
+			return Some(current_selection);
 		}
 
 		None
@@ -398,7 +380,7 @@ mod test {
 	}
 
 	#[test]
-	fn test_selection_left_parent() {
+	fn test_selection_left_stays_on_file_and_collapsed_folder() {
 		let items = vec![
 			Path::new("a/b/c"), //
 			Path::new("a/d"),   //
@@ -414,14 +396,17 @@ mod test {
 
 		tree.selection = Some(2);
 
-		assert!(tree.move_selection(MoveSelection::Left));
-		assert_eq!(tree.selection, Some(1));
+		assert!(!tree.move_selection(MoveSelection::Left));
+		assert_eq!(tree.selection, Some(2));
+
+		tree.selection = Some(1);
 
 		assert!(tree.move_selection(MoveSelection::Left));
 		assert_eq!(tree.selection, Some(1));
+		assert!(tree.items.tree_items[1].kind().is_path_collapsed());
 
-		assert!(tree.move_selection(MoveSelection::Left));
-		assert_eq!(tree.selection, Some(0));
+		assert!(!tree.move_selection(MoveSelection::Left));
+		assert_eq!(tree.selection, Some(1));
 	}
 
 	#[test]
@@ -447,13 +432,19 @@ mod test {
 		assert_eq!(tree.selection, Some(0));
 		assert!(!tree.items.tree_items[0].kind().is_path_collapsed());
 
-		assert!(tree.move_selection(MoveSelection::Right));
-		assert_eq!(tree.selection, Some(1));
-		assert!(tree.items.tree_items[1].kind().is_path_collapsed());
+		assert!(!tree.move_selection(MoveSelection::Right));
+		assert_eq!(tree.selection, Some(0));
+
+		tree.selection = Some(1);
 
 		assert!(tree.move_selection(MoveSelection::Right));
 		assert_eq!(tree.selection, Some(1));
 		assert!(!tree.items.tree_items[1].kind().is_path_collapsed());
+
+		tree.selection = Some(2);
+
+		assert!(!tree.move_selection(MoveSelection::Right));
+		assert_eq!(tree.selection, Some(2));
 	}
 
 	#[test]

@@ -6,7 +6,7 @@ use crate::components::{
 use crate::{
 	accessors,
 	app::Environment,
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	options::SharedOptions,
 	popups::{
 		copy_commit_hashes, opens_over_popup, InspectCommitOpen,
@@ -139,9 +139,16 @@ impl Component for CompareCommitsPopup {
 					self.key_config.keys.exit_popup,
 				) {
 					if self.diff.focused() {
-						self.details.focus(true);
-						self.diff.focus(false);
+						self.focus_details();
 					} else {
+						self.hide_stacked(false);
+					}
+				} else if key_goes_back(e, &self.key_config.keys) {
+					// closing the standalone view quits, which is
+					// more than going back
+					if self.diff.focused() {
+						self.focus_details();
+					} else if !self.standalone {
 						self.hide_stacked(false);
 					}
 				} else if key_match(
@@ -151,10 +158,6 @@ impl Component for CompareCommitsPopup {
 				{
 					self.details.focus(false);
 					self.diff.focus(true);
-				} else if !self.standalone
-					&& key_match(e, self.key_config.keys.move_left)
-				{
-					self.hide_stacked(false);
 				} else if key_match(
 					e,
 					self.key_config.keys.copy_commit_hash,
@@ -245,6 +248,11 @@ impl CompareCommitsPopup {
 			compare_id: Some(commits.old),
 			tags: None,
 		})
+	}
+
+	fn focus_details(&mut self) {
+		self.details.focus(true);
+		self.diff.focus(false);
 	}
 
 	///

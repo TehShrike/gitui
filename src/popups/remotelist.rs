@@ -17,7 +17,7 @@ use crate::{
 		visibility_blocking, CommandBlocking, CommandInfo, Component,
 		DrawableComponent, EventState, ScrollType, VerticalScroll,
 	},
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	queue::{Action, InternalEvent, Queue},
 	strings,
 	ui::{self, style::SharedTheme, Size},
@@ -190,7 +190,9 @@ impl RemoteListPopup {
 	}
 
 	fn move_event(&mut self, e: &KeyEvent) -> Result<EventState> {
-		if key_match(e, self.key_config.keys.exit_popup) {
+		if key_match(e, self.key_config.keys.exit_popup)
+			|| key_goes_back(e, &self.key_config.keys)
+		{
 			self.hide();
 		} else if key_match(e, self.key_config.keys.move_down) {
 			return self

@@ -4,7 +4,7 @@ use crate::{
 		visibility_blocking, CommandBlocking, CommandInfo, Component,
 		DrawableComponent, EventState, ScrollType, VerticalScroll,
 	},
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	queue::{InternalEvent, NeedsUpdate, Queue},
 	strings, try_or_popup,
 	ui::{self, Size},
@@ -149,7 +149,9 @@ impl Component for SubmodulesListPopup {
 		}
 
 		if let Event::Key(e) = ev {
-			if key_match(e, self.key_config.keys.exit_popup) {
+			if key_match(e, self.key_config.keys.exit_popup)
+				|| key_goes_back(e, &self.key_config.keys)
+			{
 				self.hide();
 			} else if key_match(e, self.key_config.keys.move_down) {
 				return self
@@ -175,7 +177,9 @@ impl Component for SubmodulesListPopup {
 				return self
 					.move_selection(ScrollType::End)
 					.map(Into::into);
-			} else if key_match(e, self.key_config.keys.enter) {
+			} else if key_match(e, self.key_config.keys.enter)
+				|| key_match(e, self.key_config.keys.move_right)
+			{
 				if let Some(submodule) = self.selected_entry() {
 					if submodule.status.is_in_wd() {
 						self.queue.push(InternalEvent::OpenRepo {

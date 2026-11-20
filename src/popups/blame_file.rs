@@ -5,7 +5,7 @@ use crate::{
 		CommandBlocking, CommandInfo, Component, DrawableComponent,
 		EventState, ScrollType,
 	},
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	popups::{FileRevOpen, InspectCommitOpen},
 	queue::{InternalEvent, Queue, StackablePopupOpen},
 	string_utils::tabs_to_spaces,
@@ -255,7 +255,9 @@ impl Component for BlameFilePopup {
 	) -> Result<EventState> {
 		if self.is_visible() {
 			if let Event::Key(key) = event {
-				if key_match(key, self.key_config.keys.exit_popup) {
+				if key_match(key, self.key_config.keys.exit_popup)
+					|| key_goes_back(key, &self.key_config.keys)
+				{
 					self.hide_stacked(false);
 				} else if key_match(key, self.key_config.keys.move_up)
 				{

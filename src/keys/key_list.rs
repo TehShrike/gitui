@@ -1,4 +1,6 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+	KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf};
 use struct_patch::traits::Patch as PatchTrait;
@@ -18,6 +20,13 @@ impl GituiKeyEvent {
 
 pub fn key_match(ev: &KeyEvent, binding: GituiKeyEvent) -> bool {
 	ev.code == binding.code && ev.modifiers == binding.modifiers
+}
+
+/// Whether `ev` asks to go back to the previous pane or view: a press of
+/// the left key. The auto-repeats of a held left key never go back, so
+/// that scrolling left by holding the key stops at the edge.
+pub fn key_goes_back(ev: &KeyEvent, keys: &KeysList) -> bool {
+	key_match(ev, keys.move_left) && ev.kind != KeyEventKind::Repeat
 }
 
 impl PartialEq for GituiKeyEvent {

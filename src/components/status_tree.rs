@@ -143,6 +143,16 @@ impl StatusTreeComponent {
 		changed
 	}
 
+	/// Left and right fold and unfold the selected folder. On a folder
+	/// the key is used up even when there is nothing left to fold, so it
+	/// never goes on to mean back or forward. On a file it is passed on.
+	fn fold_selection(&mut self, dir: MoveSelection) -> EventState {
+		let on_folder =
+			self.selection().is_some() && !self.is_file_selected();
+
+		(self.move_selection(dir) || on_folder).into()
+	}
+
 	const fn item_status_char(item_type: StatusItemType) -> char {
 		match item_type {
 			StatusItemType::Modified => 'M',
@@ -551,16 +561,12 @@ impl Component for StatusTreeComponent {
 						.into())
 				} else if key_match(e, self.key_config.keys.move_left)
 				{
-					Ok(self
-						.move_selection(MoveSelection::Left)
-						.into())
+					Ok(self.fold_selection(MoveSelection::Left))
 				} else if key_match(
 					e,
 					self.key_config.keys.move_right,
 				) {
-					Ok(self
-						.move_selection(MoveSelection::Right)
-						.into())
+					Ok(self.fold_selection(MoveSelection::Right))
 				} else {
 					Ok(EventState::NotConsumed)
 				};

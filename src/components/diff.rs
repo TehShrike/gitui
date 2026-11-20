@@ -7,7 +7,7 @@ use super::{
 use crate::{
 	app::Environment,
 	components::{CommandInfo, Component, EventState},
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{Action, InternalEvent, NeedsUpdate, Queue, ResetItem},
 	stage_undo::SharedStageUndo,
@@ -1250,9 +1250,14 @@ impl Component for DiffComponent {
 					Ok(EventState::Consumed)
 				} else if key_match(e, self.key_config.keys.move_left)
 				{
-					self.horizontal_scroll
+					// at the left edge a press of left is passed on,
+					// for whoever shows the diff to go back from it
+					let scrolled = self
+						.horizontal_scroll
 						.move_right(HorizontalScrollType::Left);
-					Ok(EventState::Consumed)
+					Ok((scrolled
+						|| !key_goes_back(e, &self.key_config.keys))
+					.into())
 				} else if key_match(
 					e,
 					self.key_config.keys.diff_hunk_next,

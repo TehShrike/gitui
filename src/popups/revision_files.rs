@@ -4,7 +4,7 @@ use crate::components::{
 };
 use crate::{
 	app::Environment,
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	queue::{InternalEvent, Queue, StackablePopupOpen},
 	strings::{self},
 	AsyncNotification,
@@ -136,6 +136,16 @@ impl Component for RevisionFilesPopup {
 			if res == EventState::Consumed && !self.files.is_visible()
 			{
 				self.hide_stacked(true);
+			}
+
+			// left on a file of the tree, which the tree has no use for
+			if let Event::Key(key) = event {
+				if res == EventState::NotConsumed
+					&& key_goes_back(key, &self.key_config.keys)
+				{
+					self.hide_stacked(false);
+					return Ok(EventState::Consumed);
+				}
 			}
 
 			return Ok(res);

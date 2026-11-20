@@ -178,6 +178,21 @@ impl Gitui {
 			.unwrap();
 	}
 
+	/// An auto-repeat of a held key, as the input thread would mark it.
+	#[cfg(test)]
+	fn input_repeat(&mut self, code: KeyCode) {
+		let event = crossterm::event::KeyEvent::new_with_kind(
+			code,
+			KeyModifiers::empty(),
+			crossterm::event::KeyEventKind::Repeat,
+		);
+		self.app
+			.event(crate::input::InputEvent::Input(
+				crossterm::event::Event::Key(event),
+			))
+			.unwrap();
+	}
+
 	#[cfg(test)]
 	fn wait_for_async_git_notification(
 		&self,
@@ -445,6 +460,126 @@ mod tests {
 		let s = screen(&mut gitui);
 		assert!(!s.contains("Help: all commands"));
 		assert!(s.contains("┌Diff:"));
+	}
+
+	#[test]
+	fn left_leaves_diff_only_when_pressed_at_its_left_edge() {
+		let (temp_dir, _repo) = repo_init_suffix(Some("-back"));
+		std::fs::write(
+			temp_dir.path().join("wide.txt"),
+			format!("{}\n", "wide ".repeat(100)),
+		)
+		.unwrap();
+
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			diff_range: None,
+			repo_path: temp_dir.path().to_str().unwrap().into(),
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+		let key_config = KeyConfig::default();
+		let mut gitui = Gitui::new(
+			cliargs,
+			Theme::init(&PathBuf::new()),
+			&key_config,
+			Updater::Ticker,
+		)
+		.unwrap();
+		let mut terminal =
+			Terminal::new(TestBackend::new(160, 30)).unwrap();
+		let mut screen = |gitui: &mut Gitui| {
+			gitui.draw(&mut terminal).unwrap();
+			terminal.backend().to_string()
+		};
+
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Status,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Status,
+		));
+		assert!(screen(&mut gitui).contains("Diff [→]"));
+
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Diff,
+		);
+		gitui.update_async(AsyncNotification::Git(
+			AsyncGitNotification::Diff,
+		));
+		// the hints tell where the focus is, and the selected line where
+		// the diff is scrolled to
+		let s = screen(&mut gitui);
+		assert!(s.contains("Next hunk [n]"));
+		assert!(s.contains("└wide wide"));
+
+		// scrolled right, a press of left scrolls back
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		assert!(!screen(&mut gitui).contains("└wide wide"));
+		gitui.input_event(KeyCode::Left, KeyModifiers::empty());
+		let s = screen(&mut gitui);
+		assert!(s.contains("Next hunk [n]"));
+		assert!(s.contains("└wide wide"));
+
+		// at the left edge a held left stays in the diff
+		gitui.input_repeat(KeyCode::Left);
+		assert!(screen(&mut gitui).contains("Next hunk [n]"));
+
+		// and a press of left goes back to the file list
+		gitui.input_event(KeyCode::Left, KeyModifiers::empty());
+		let s = screen(&mut gitui);
+		assert!(!s.contains("Next hunk [n]"));
+		assert!(s.contains("Diff [→]"));
+	}
+
+	#[test]
+	fn right_inspects_commit_from_log_and_left_goes_back() {
+		let (temp_dir, _repo) = repo_init_suffix(Some("-log-right"));
+		let cliargs = CliArgs {
+			theme: PathBuf::from("theme.ron"),
+			select_file: None,
+			diff_range: None,
+			repo_path: temp_dir.path().to_str().unwrap().into(),
+			notify_watcher: false,
+			key_bindings_path: None,
+			key_symbols_path: None,
+		};
+		let key_config = KeyConfig::default();
+		let mut gitui = Gitui::new(
+			cliargs,
+			Theme::init(&PathBuf::new()),
+			&key_config,
+			Updater::Ticker,
+		)
+		.unwrap();
+		let mut terminal =
+			Terminal::new(TestBackend::new(160, 30)).unwrap();
+		let mut screen = |gitui: &mut Gitui| {
+			gitui.draw(&mut terminal).unwrap();
+			terminal.backend().to_string()
+		};
+
+		gitui.input_event(KeyCode::Char('2'), KeyModifiers::empty());
+		gitui.wait_for_async_git_notification(
+			AsyncGitNotification::Log,
+		);
+		gitui.update();
+
+		// without opening the details pane first
+		gitui.input_event(KeyCode::Right, KeyModifiers::empty());
+		assert!(screen(&mut gitui).contains("┌Diff:"));
+
+		gitui.input_repeat(KeyCode::Left);
+		assert!(screen(&mut gitui).contains("┌Diff:"));
+
+		gitui.input_event(KeyCode::Left, KeyModifiers::empty());
+		assert!(!screen(&mut gitui).contains("┌Diff:"));
 	}
 
 	fn gitui_showing_diff_of_two_commits(

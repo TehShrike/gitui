@@ -7,7 +7,7 @@ use crate::{
 		DiffComponent, DrawableComponent, EventState,
 		FileTreeItemKind,
 	},
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{Action, InternalEvent, NeedsUpdate, Queue, ResetItem},
 	stage_undo::SharedStageUndo,
@@ -760,7 +760,7 @@ impl Status {
 		let focus_on_diff = self.is_focus_on_diff();
 		out.push(
 			CommandInfo::new(
-				strings::commands::close_popup(&self.key_config),
+				strings::commands::diff_focus_left(&self.key_config),
 				true,
 				(self.visible && focus_on_diff) || force_all,
 			)
@@ -945,7 +945,9 @@ impl Component for Status {
 				} else if key_match(
 					k,
 					self.key_config.keys.exit_popup,
-				) {
+				) || (self.is_focus_on_diff()
+					&& key_goes_back(k, &self.key_config.keys))
+				{
 					self.switch_focus(match self.diff_target {
 						DiffTarget::Stage => Focus::Stage,
 						DiffTarget::WorkingDir => Focus::WorkDir,

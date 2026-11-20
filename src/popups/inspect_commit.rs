@@ -6,7 +6,7 @@ use crate::components::{
 use crate::{
 	accessors,
 	app::Environment,
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	options::SharedOptions,
 	queue::{InternalEvent, Queue, StackablePopupOpen},
 	strings, try_or_popup,
@@ -124,7 +124,7 @@ impl Component for InspectCommitPopup {
 			));
 
 			out.push(CommandInfo::new(
-				strings::commands::close_popup(&self.key_config),
+				strings::commands::diff_focus_left(&self.key_config),
 				true,
 				self.diff.focused() || force_all,
 			));
@@ -164,7 +164,9 @@ impl Component for InspectCommitPopup {
 					return Ok(EventState::NotConsumed);
 				}
 
-				if key_match(e, self.key_config.keys.exit_popup) {
+				if key_match(e, self.key_config.keys.exit_popup)
+					|| key_goes_back(e, &self.key_config.keys)
+				{
 					if self.diff.focused() {
 						self.details.focus(true);
 						self.diff.focus(false);
@@ -192,9 +194,6 @@ impl Component for InspectCommitPopup {
 				{
 					self.details.focus(false);
 					self.diff.focus(true);
-				} else if key_match(e, self.key_config.keys.move_left)
-				{
-					self.hide_stacked(false);
 				} else if key_match(
 					e,
 					self.key_config.keys.open_file_tree,

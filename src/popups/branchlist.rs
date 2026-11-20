@@ -5,7 +5,7 @@ use crate::components::{
 use crate::{
 	app::Environment,
 	components::ScrollType,
-	keys::{key_match, SharedKeyConfig},
+	keys::{key_goes_back, key_match, SharedKeyConfig},
 	queue::{
 		Action, InternalEvent, NeedsUpdate, Queue, StackablePopupOpen,
 	},
@@ -256,7 +256,9 @@ impl BranchListPopup {
 	}
 
 	fn move_event(&mut self, e: &KeyEvent) -> Result<EventState> {
-		if key_match(e, self.key_config.keys.exit_popup) {
+		if key_match(e, self.key_config.keys.exit_popup)
+			|| key_goes_back(e, &self.key_config.keys)
+		{
 			self.hide();
 		} else if key_match(e, self.key_config.keys.move_down) {
 			return self

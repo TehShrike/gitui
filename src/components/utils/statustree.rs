@@ -374,61 +374,42 @@ impl StatusTree {
 		self.tree[idx].info.visible
 	}
 
+	/// expands a collapsed folder, anything else is left alone
 	fn selection_right(
 		&mut self,
 		current_selection: usize,
 	) -> SelectionChange {
-		let item_kind = self.tree[current_selection].kind.clone();
 		let item_path =
 			self.tree[current_selection].info.full_path.clone();
 
-		match item_kind {
-			FileTreeItemKind::Path(PathCollapsed(collapsed))
-				if collapsed =>
-			{
-				self.expand(&item_path, current_selection);
-				return SelectionChange::new(current_selection, true);
-			}
-			FileTreeItemKind::Path(PathCollapsed(collapsed))
-				if !collapsed =>
-			{
-				return self
-					.selection_updown(current_selection, false);
-			}
-			_ => (),
+		if matches!(
+			self.tree[current_selection].kind,
+			FileTreeItemKind::Path(PathCollapsed(true))
+		) {
+			self.expand(&item_path, current_selection);
+			return SelectionChange::new(current_selection, true);
 		}
 
 		SelectionChange::new(current_selection, false)
 	}
 
+	/// collapses an expanded folder, anything else is left alone
 	fn selection_left(
 		&mut self,
 		current_selection: usize,
 	) -> SelectionChange {
-		let item_kind = self.tree[current_selection].kind.clone();
 		let item_path =
 			self.tree[current_selection].info.full_path.clone();
 
-		if matches!(item_kind, FileTreeItemKind::File(_))
-			|| matches!(item_kind,FileTreeItemKind::Path(PathCollapsed(collapsed))
-        if collapsed)
-		{
-			let mut cur_parent =
-				self.tree.find_parent_index(current_selection);
-			while !self.available_selections.contains(&cur_parent)
-				&& cur_parent != 0
-			{
-				cur_parent = self.tree.find_parent_index(cur_parent);
-			}
-			SelectionChange::new(cur_parent, false)
-		} else if matches!(item_kind,  FileTreeItemKind::Path(PathCollapsed(collapsed))
-        if !collapsed)
-		{
+		if matches!(
+			self.tree[current_selection].kind,
+			FileTreeItemKind::Path(PathCollapsed(false))
+		) {
 			self.collapse(&item_path, current_selection);
-			SelectionChange::new(current_selection, true)
-		} else {
-			SelectionChange::new(current_selection, false)
+			return SelectionChange::new(current_selection, true);
 		}
+
+		SelectionChange::new(current_selection, false)
 	}
 
 	fn collapse(&mut self, path: &str, index: usize) {
@@ -552,9 +533,10 @@ mod tests {
 
 		assert_eq!(res.selection, Some(1));
 
-		assert!(res.move_selection(MoveSelection::Left));
+		// left on a file neither moves to its folder nor changes anything
+		assert!(!res.move_selection(MoveSelection::Left));
 
-		assert_eq!(res.selection, Some(0));
+		assert_eq!(res.selection, Some(1));
 	}
 
 	#[test]
@@ -1090,18 +1072,21 @@ mod tests {
 		res.update(&items).unwrap();
 		res.selection = Some(0);
 
-		assert!(res.move_selection(MoveSelection::Left));
+		assert!(res.move_selection(MoveSelection::Left)); // fold 0
 		assert_eq!(res.selection, Some(0));
 
-		// These should do nothing
-		res.move_selection(MoveSelection::Left);
-		res.move_selection(MoveSelection::Left);
+		// a folded folder stays as it is
+		assert!(!res.move_selection(MoveSelection::Left));
 		assert_eq!(res.selection, Some(0));
-		//
+
 		assert!(res.move_selection(MoveSelection::Right)); // unfold 0
 		assert_eq!(res.selection, Some(0));
 
-		assert!(res.move_selection(MoveSelection::Right)); // move to 1
+		// an unfolded folder stays as it is, selection included
+		assert!(!res.move_selection(MoveSelection::Right));
+		assert_eq!(res.selection, Some(0));
+
+		assert!(res.move_selection(MoveSelection::Down)); // move to 1
 		assert_eq!(res.selection, Some(1));
 
 		assert!(res.move_selection(MoveSelection::Left)); // fold 1
@@ -1112,16 +1097,12 @@ mod tests {
 		assert!(res.move_selection(MoveSelection::Down)); // move to 7
 		assert_eq!(res.selection, Some(7));
 
-		assert!(res.move_selection(MoveSelection::Right)); // move to 9
+		assert!(res.move_selection(MoveSelection::Down)); // move to 9
 		assert_eq!(res.selection, Some(9));
 
-		assert!(res.move_selection(MoveSelection::Left)); // move to 7
-		assert_eq!(res.selection, Some(7));
-
-		assert!(res.move_selection(MoveSelection::Left)); // folds 7
-		assert_eq!(res.selection, Some(7));
-
-		assert!(res.move_selection(MoveSelection::Left)); // jump to 0
-		assert_eq!(res.selection, Some(0));
+		// a file stays selected, left does not jump to its folder
+		assert!(!res.move_selection(MoveSelection::Left));
+		assert!(!res.move_selection(MoveSelection::Right));
+		assert_eq!(res.selection, Some(9));
 	}
 }

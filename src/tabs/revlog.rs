@@ -497,8 +497,7 @@ impl Component for Revlog {
 				} else if key_match(
 					k,
 					self.key_config.keys.move_right,
-				) && self.commit_details.is_visible()
-				{
+				) {
 					self.inspect_commit();
 					return Ok(EventState::Consumed);
 				} else if key_match(
@@ -642,8 +641,7 @@ impl Component for Revlog {
 		out.push(CommandInfo::new(
 			strings::commands::commit_details_open(&self.key_config),
 			true,
-			(self.visible && self.commit_details.is_visible())
-				|| force_all,
+			self.visible || force_all,
 		));
 
 		out.push(CommandInfo::new(
