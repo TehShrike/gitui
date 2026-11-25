@@ -36,13 +36,16 @@ Here is a [vim style key config](vim_style_key_config.ron) with `h`, `j`, `k`, `
 
 ## Modified special keys
 
-Finishing a commit message (and an annotated tag message) is bound to `ctrl+enter`. Legacy terminal key encoding cannot tell `ctrl+enter` from `enter`, so gitui asks the terminal for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) at startup. Most current terminals support it (kitty, WezTerm, Ghostty, foot, Alacritty, Warp, recent iTerm2); inside tmux it needs `set -s extended-keys on`. In a terminal without it, `ctrl+enter` arrives as a plain `enter` and only inserts a newline, so rebind `commit` to something the legacy encoding can carry:
+Finishing a commit message (and an annotated tag message) is bound to `enter`, and `shift+enter` inserts a line break. Legacy terminal key encoding cannot tell `shift+enter` from `enter`, so gitui asks the terminal for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) at startup. Most current terminals support it (kitty, WezTerm, Ghostty, foot, Alacritty, Warp, recent iTerm2); inside tmux it needs `set -s extended-keys on`. In a terminal without it, `shift+enter` arrives as a plain `enter` and finishes the message instead of breaking the line, so rebind `commit` and `newline` to something the legacy encoding can carry:
 
 ```
 (
     commit: Some(( code: Char('d'), modifiers: "CONTROL")),
+    newline: Some(( code: Enter, modifiers: "")),
 )
 ```
+
+A multi-line paste arrives as key presses, so its first line break finishes the message. Use the external editor to paste a message with several lines.
 
 # Key Symbols
 

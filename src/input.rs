@@ -32,7 +32,7 @@ static KEYBOARD_ENHANCEMENT_SUPPORTED: OnceLock<bool> =
 	OnceLock::new();
 
 /// Asks the terminal to report modified keys that the legacy encoding
-/// cannot express, such as ctrl+enter, which legacy terminals send as a
+/// cannot express, such as shift+enter, which legacy terminals send as a
 /// plain enter, and to tell the auto-repeats of a held key apart from
 /// presses. Neither flag changes how unmodified enter, tab and backspace
 /// or shifted letters are sent, so existing bindings are unaffected.
@@ -48,7 +48,7 @@ pub fn enable_keyboard_enhancement() {
 		});
 
 	if !supported {
-		log::info!("terminal does not support the kitty keyboard protocol, modified keys like ctrl+enter arrive unmodified");
+		log::info!("terminal does not support the kitty keyboard protocol, modified keys like shift+enter arrive unmodified");
 		return;
 	}
 

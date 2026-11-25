@@ -749,6 +749,27 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn shift_enter_breaks_the_line_and_typing_continues_after_it() {
+		use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+		let env = Environment::test_env();
+		let mut comp = TextInputComponent::new(&env, "", "", false);
+		comp.show_inner_textarea();
+		let mut press = |code, modifiers| {
+			comp.event(&Event::Key(KeyEvent::new(code, modifiers)))
+				.unwrap();
+		};
+
+		press(KeyCode::Char('a'), KeyModifiers::empty());
+		press(KeyCode::Enter, KeyModifiers::SHIFT);
+		press(KeyCode::Char('b'), KeyModifiers::empty());
+		press(KeyCode::Enter, KeyModifiers::empty());
+		press(KeyCode::Char('c'), KeyModifiers::empty());
+
+		assert_eq!(comp.get_text(), "a\nbc");
+	}
+
+	#[test]
 	fn test_smoke() {
 		let env = Environment::test_env();
 		let mut comp = TextInputComponent::new(&env, "", "", false);
